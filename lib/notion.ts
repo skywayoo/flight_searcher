@@ -1,8 +1,8 @@
 import { FlightTarget, FlightResult, FlightCombination } from '@/types';
 
 const DB = {
-  TARGETS: process.env.NOTION_FLIGHT_TARGETS_DB_ID!.trim(),
-  RESULTS: process.env.NOTION_FLIGHT_RESULTS_DB_ID!.trim(),
+  get TARGETS() { return (process.env.NOTION_FLIGHT_TARGETS_DB_ID ?? '').trim(); },
+  get RESULTS() { return (process.env.NOTION_FLIGHT_RESULTS_DB_ID ?? '').trim(); },
 };
 
 const HEADERS = () => ({
@@ -86,6 +86,11 @@ export async function getFlightTarget(id: string): Promise<FlightTarget | null> 
   return rowToTarget(data);
 }
 
+function getBool(p: Record<string, unknown>, key: string): boolean {
+  const props = p as { properties: Record<string, { checkbox?: boolean }> };
+  return props.properties[key]?.checkbox ?? false;
+}
+
 function rowToTarget(p: Record<string, unknown>): FlightTarget {
   let outStations: string[] = [];
   try {
@@ -105,6 +110,7 @@ function rowToTarget(p: Record<string, unknown>): FlightTarget {
     tripLengthMax: getNum(p, 'TripLengthMax') || undefined,
     outStations: outStations.length ? outStations : undefined,
     budgetCap: getNum(p, 'BudgetCap') || undefined,
+    includeBusiness: getBool(p, 'IncludeBusiness'),
     notifyDropPct: getNum(p, 'NotifyDropPct') || undefined,
     status: (getSelect(p, 'Status') || 'active') as FlightTarget['status'],
     createdAt: getDate(p, 'CreatedAt'),
@@ -128,6 +134,7 @@ export async function createFlightTarget(t: Omit<FlightTarget, 'id' | 'createdAt
   if (t.tripLengthMax) props.TripLengthMax = { number: t.tripLengthMax };
   if (t.outStations?.length) props.OutStations = { rich_text: [{ text: { content: JSON.stringify(t.outStations) } }] };
   if (t.budgetCap) props.BudgetCap = { number: t.budgetCap };
+  if (t.includeBusiness) props.IncludeBusiness = { checkbox: true };
   if (t.notifyDropPct) props.NotifyDropPct = { number: t.notifyDropPct };
   return createPage(DB.TARGETS, props);
 }

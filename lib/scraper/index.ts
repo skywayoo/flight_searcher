@@ -19,33 +19,39 @@ export async function scrapeTarget(target: FlightTarget): Promise<FlightCombinat
 
   const allResults: FlightCombination[] = [];
 
+  const cabins: Array<'economy' | 'business'> = target.includeBusiness ? ['economy', 'business'] : ['economy'];
+
   for (const dest of targetDests) {
-    try {
-      const results = await scrapeOneSearch({
-        from: target.departureAirport,
-        to: dest.code,
-        outboundStart: target.outboundStart,
-        outboundEnd: target.outboundEnd,
-        tripType: target.tripType,
-        tripLengthMin: target.tripLengthMin,
-        tripLengthMax: target.tripLengthMax,
-        outStations: target.tripType === 'multi_city_4' ? (target.outStations ?? OUT_STATIONS.map((o) => o.code)) : undefined,
-      });
-      allResults.push(...results);
-    } catch (e) {
-      console.error(`scrape failed for ${dest.code}:`, e);
+    for (const cabin of cabins) {
+      try {
+        const results = await scrapeOneSearch({
+          from: target.departureAirport,
+          to: dest.code,
+          outboundStart: target.outboundStart,
+          outboundEnd: target.outboundEnd,
+          tripType: target.tripType,
+          tripLengthMin: target.tripLengthMin,
+          tripLengthMax: target.tripLengthMax,
+          outStations: target.tripType === 'multi_city_4' ? (target.outStations ?? OUT_STATIONS.map((o) => o.code)) : undefined,
+          cabin,
+        });
+        allResults.push(...results);
+      } catch (e) {
+        console.error(`scrape failed for ${dest.code} ${cabin}:`, e);
+      }
+      // small delay between requests
+      await new Promise((r) => setTimeout(r, 1500 + Math.random() * 2500));
     }
-    // small delay between destinations
-    await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
   }
 
-  // Filter by budget if set
+  // Filter by budget if set (apply only to economy; business class always shown if requested)
   let filtered = allResults;
   if (target.budgetCap) {
-    filtered = filtered.filter((r) => r.totalPrice <= target.budgetCap!);
+    filtered = filtered.filter((r) => r.cabin === 'business' || r.totalPrice <= target.budgetCap!);
   }
 
-  // Sort by price ascending and take top 5
-  filtered.sort((a, b) => a.totalPrice - b.totalPrice);
-  return filtered.slice(0, 5);
+  // Sort by price ascending. Take top 5 economy + top 3 business (if any).
+  const economy = filtered.filter((r) => r.cabin !== 'business').sort((a, b) => a.totalPrice - b.totalPrice).slice(0, 5);
+  const business = filtered.filter((r) => r.cabin === 'business').sort((a, b) => a.totalPrice - b.totalPrice).slice(0, 3);
+  return [...economy, ...business];
 }

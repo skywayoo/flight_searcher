@@ -21,6 +21,8 @@ export interface FlightTarget {
   outStations?: string[];
   // Optional budget cap (TWD)
   budgetCap?: number;
+  // Also fetch business class for comparison
+  includeBusiness?: boolean;
   // Notification thresholds
   notifyDropPct?: number;      // notify if price drops by this % (default 5)
   status: TargetStatus;
@@ -37,6 +39,7 @@ export interface FlightCombination {
   returnDate?: string;
   outboundAirport: string;     // destination airport for outbound
   airline: string;
+  cabin: 'economy' | 'business';
   segments: FlightSegment[];
   weekdayDays: number;         // count of weekdays in trip (Mon-Fri)
   source: 'eztravel';

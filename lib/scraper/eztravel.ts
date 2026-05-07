@@ -9,6 +9,7 @@ export interface SearchParams {
   tripLengthMin?: number;
   tripLengthMax?: number;
   outStations?: string[];
+  cabin?: 'economy' | 'business';
 }
 
 // 平日天數計算（週一到週五）
@@ -77,6 +78,7 @@ function generateStub(params: SearchParams): FlightCombination[] {
   const oneWay = baseOneWay[params.to] ?? 15000;
   const isMulti = params.tripType === 'multi_city_4';
   const isOneWay = params.tripType === 'one_way';
+  const isBusiness = params.cabin === 'business';
 
   // For 4-segment outstation tickets, total = ~4 segments worth, but with regional pricing
   // it ends up being ~1.5x the round-trip price (i.e. roughly 3x one-way)
@@ -85,6 +87,9 @@ function generateStub(params: SearchParams): FlightCombination[] {
   if (isOneWay) priceMultiplier = 1.0;          // 1 segment
   else if (isMulti) priceMultiplier = 3.0;      // 4 segments at outstation pricing
   else priceMultiplier = 2.0;                   // round trip = 2 segments
+
+  // Business class is roughly 3.5-5x economy
+  if (isBusiness) priceMultiplier *= 4.0;
 
   const startD = new Date(params.outboundStart);
   const endD = new Date(params.outboundEnd);
@@ -110,6 +115,11 @@ function generateStub(params: SearchParams): FlightCombination[] {
     const airlines = ['長榮航空', '中華航空', '星宇航空', '日本航空', '全日空', '台灣虎航'];
     const airline = airlines[Math.floor(Math.random() * airlines.length)];
 
+    // Best-effort booking URL: link to eztravel homepage with airport hints
+    // (eztravel SPA doesn't accept URL search params for direct results, so this
+    // is a partial deep-link until real scraper captures the actual results URL)
+    const bookingUrl = `https://flight.eztravel.com.tw/?d=${params.from}&a=${params.to}&dd=${outDateStr}${!isOneWay ? `&rd=${retDateStr}` : ''}`;
+
     return {
       totalPrice: price,
       currency: 'TWD',
@@ -118,10 +128,11 @@ function generateStub(params: SearchParams): FlightCombination[] {
       returnDate: isOneWay ? undefined : retDateStr,
       outboundAirport: params.to,
       airline,
+      cabin: isBusiness ? 'business' as const : 'economy' as const,
       segments: [],
       weekdayDays: isOneWay ? countWeekdays(outDateStr, outDateStr) : countWeekdays(outDateStr, retDateStr),
       source: 'eztravel' as const,
-      bookingUrl: `https://flight.eztravel.com.tw/`,
+      bookingUrl,
     };
   });
 }

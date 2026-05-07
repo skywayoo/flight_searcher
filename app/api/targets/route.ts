@@ -16,6 +16,7 @@ export async function POST(req: Request) {
       tripLengthMax: body.tripLengthMax,
       outStations: body.outStations,
       budgetCap: body.budgetCap,
+      includeBusiness: body.includeBusiness,
       notifyDropPct: body.notifyDropPct,
       status: body.status || 'active',
     });

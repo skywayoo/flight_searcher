@@ -20,6 +20,7 @@ export default function NewTargetPage() {
     tripLengthMin: 5,
     tripLengthMax: 10,
     budgetCap: 0,
+    includeBusiness: false,
     notifyDropPct: 5,
   });
 
@@ -208,6 +209,17 @@ export default function NewTargetPage() {
             className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white"
           />
         </div>
+
+        {/* Include Business Class */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.includeBusiness}
+            onChange={(e) => setForm({ ...form, includeBusiness: e.target.checked })}
+            className="w-4 h-4 rounded border-gray-700 bg-gray-900"
+          />
+          <span className="text-sm text-gray-300">同時比較商務艙價格</span>
+        </label>
 
         {/* Notify Drop % */}
         <div>

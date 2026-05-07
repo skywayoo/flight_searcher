@@ -84,45 +84,57 @@ export default async function TargetDetail({ params }: { params: Promise<{ id: s
               )}
             </div>
 
-            {/* Top 5 combinations */}
-            <h2 className="text-sm font-semibold text-gray-300 pt-2">前 5 名便宜組合</h2>
-            {latest.top5.map((c, i) => {
-              const airportInfo = getAirportByCode(c.outboundAirport);
+            {/* Top combinations */}
+            {(['economy', 'business'] as const).map((cabin) => {
+              const items = latest.top5.filter((c) => (c.cabin ?? 'economy') === cabin);
+              if (items.length === 0) return null;
               return (
-                <div key={i} className="rounded-xl bg-gray-900 p-4 space-y-2">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="inline-block rounded bg-orange-900/40 px-1.5 py-0.5 text-[10px] font-medium text-orange-300">
-                          #{i + 1}
-                        </span>
-                        <p className="text-sm font-semibold text-white">
-                          {target.departureAirport} → {c.outboundAirport}
-                          {airportInfo && <span className="text-gray-500 ml-1">{airportInfo.city}</span>}
-                        </p>
+                <div key={cabin} className="space-y-3">
+                  <h2 className="text-sm font-semibold text-gray-300 pt-2">
+                    {cabin === 'economy' ? '經濟艙' : '商務艙'}前 {items.length} 名
+                  </h2>
+                  {items.map((c, i) => {
+                    const airportInfo = getAirportByCode(c.outboundAirport);
+                    return (
+                      <div key={`${cabin}-${i}`} className="rounded-xl bg-gray-900 p-4 space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                                cabin === 'business' ? 'bg-purple-900/40 text-purple-300' : 'bg-orange-900/40 text-orange-300'
+                              }`}>
+                                #{i + 1}
+                              </span>
+                              <p className="text-sm font-semibold text-white">
+                                {target.departureAirport} → {c.outboundAirport}
+                                {airportInfo && <span className="text-gray-500 ml-1">{airportInfo.city}</span>}
+                              </p>
+                            </div>
+                            {c.outStation && (
+                              <p className="text-xs text-purple-400 mt-0.5">外站起點：{c.outStation}</p>
+                            )}
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {c.outboundDate}{c.returnDate && ` ~ ${c.returnDate}`}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {c.airline} · 平日 {c.weekdayDays} 天
+                            </p>
+                          </div>
+                          <p className="text-lg font-bold text-white">${fmt(c.totalPrice)}</p>
+                        </div>
+                        {c.bookingUrl && (
+                          <a
+                            href={c.bookingUrl}
+                            target="_blank"
+                            rel="noopener"
+                            className="block text-center rounded-lg bg-blue-600/20 border border-blue-600/40 py-1.5 text-xs text-blue-300 hover:bg-blue-600/30"
+                          >
+                            到易遊網訂購 →
+                          </a>
+                        )}
                       </div>
-                      {c.outStation && (
-                        <p className="text-xs text-purple-400 mt-0.5">外站起點：{c.outStation}</p>
-                      )}
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {c.outboundDate}{c.returnDate && ` ~ ${c.returnDate}`}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {c.airline} · 平日 {c.weekdayDays} 天
-                      </p>
-                    </div>
-                    <p className="text-lg font-bold text-white">${fmt(c.totalPrice)}</p>
-                  </div>
-                  {c.bookingUrl && (
-                    <a
-                      href={c.bookingUrl}
-                      target="_blank"
-                      rel="noopener"
-                      className="block text-center rounded-lg bg-blue-600/20 border border-blue-600/40 py-1.5 text-xs text-blue-300 hover:bg-blue-600/30"
-                    >
-                      到易遊網訂購 →
-                    </a>
-                  )}
+                    );
+                  })}
                 </div>
               );
             })}
