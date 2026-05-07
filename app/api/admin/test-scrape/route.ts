@@ -3,12 +3,13 @@ import { scrapePricesFromUrl, type ScrapeDebug } from '@/lib/scraper/eztravel-re
 
 export const maxDuration = 60;
 
-export async function GET(req: Request) {
+export async function POST(req: Request) {
   if (req.headers.get('x-secret') !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  const url = new URL(req.url).searchParams.get('url');
-  if (!url) return NextResponse.json({ error: 'pass ?url=...' }, { status: 400 });
+  const body = await req.json();
+  const url: string | undefined = body.url;
+  if (!url) return NextResponse.json({ error: 'pass {url}' }, { status: 400 });
 
   const debug: ScrapeDebug[] = [];
   const start = Date.now();
