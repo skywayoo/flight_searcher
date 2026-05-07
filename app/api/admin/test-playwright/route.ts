@@ -11,6 +11,23 @@ export async function GET(req: Request) {
   try {
     log.push(`isVercel=${!!process.env.VERCEL} isLambda=${!!process.env.AWS_LAMBDA_FUNCTION_NAME}`);
     log.push(`SCRAPER_MODE=${process.env.SCRAPER_MODE}`);
+    log.push(`cwd=${process.cwd()}`);
+
+    // Try to list node_modules/@sparticuz/chromium
+    const fs = await import('fs');
+    try {
+      const dirs = ['/var/task/node_modules/@sparticuz/chromium', '/var/task/node_modules/@sparticuz', '/var/task/node_modules'];
+      for (const d of dirs) {
+        try {
+          const list = fs.readdirSync(d).slice(0, 20).join(', ');
+          log.push(`${d}: [${list}]`);
+        } catch (e: unknown) {
+          log.push(`${d}: ERR ${(e as Error).message}`);
+        }
+      }
+    } catch (e) {
+      log.push(`fs check err: ${e}`);
+    }
 
     const t1 = Date.now();
     const { chromium } = await import('playwright-core');
