@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getFlightTarget, getFlightResults, createFlightResult, updateFlightTarget } from '@/lib/notion';
 import { scrapeTarget } from '@/lib/scraper';
 import { notifyPriceChange } from '@/lib/telegram';
+import type { FlightCombination } from '@/types';
 
 // Vercel function timeout: scraping can take a while
 export const maxDuration = 300; // 5 min (Pro plan)
@@ -13,13 +14,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     if (!target) return NextResponse.json({ error: 'Target not found' }, { status: 404 });
 
     const start = Date.now();
-    let top5;
+    let top5: FlightCombination[] = [];
     let scrapeError: string | undefined;
     try {
       top5 = await scrapeTarget(target);
     } catch (e) {
       scrapeError = e instanceof Error ? `${e.name}: ${e.message}\n${(e.stack ?? '').split('\n').slice(0, 8).join('\n')}` : String(e);
-      top5 = [];
     }
     const durationMs = Date.now() - start;
     if (scrapeError) {
