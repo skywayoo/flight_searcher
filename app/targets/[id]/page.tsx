@@ -129,7 +129,7 @@ export default async function TargetDetail({ params }: { params: Promise<{ id: s
                             rel="noopener"
                             className="block text-center rounded-lg bg-blue-600/20 border border-blue-600/40 py-1.5 text-xs text-blue-300 hover:bg-blue-600/30"
                           >
-                            到易遊網訂購 →
+                            到 Skyscanner 看實際航班 →
                           </a>
                         )}
                       </div>

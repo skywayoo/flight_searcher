@@ -115,10 +115,21 @@ function generateStub(params: SearchParams): FlightCombination[] {
     const airlines = ['長榮航空', '中華航空', '星宇航空', '日本航空', '全日空', '台灣虎航'];
     const airline = airlines[Math.floor(Math.random() * airlines.length)];
 
-    // Best-effort booking URL: link to eztravel homepage with airport hints
-    // (eztravel SPA doesn't accept URL search params for direct results, so this
-    // is a partial deep-link until real scraper captures the actual results URL)
-    const bookingUrl = `https://flight.eztravel.com.tw/?d=${params.from}&a=${params.to}&dd=${outDateStr}${!isOneWay ? `&rd=${retDateStr}` : ''}`;
+    // Booking URL: use Skyscanner deep-link as fallback (actually shows results).
+    // eztravel SPA doesn't support URL-param deep-link to results, so until
+    // the real scraper captures the actual results URL, Skyscanner gives users
+    // a working preview of comparable flights.
+    const fmtDate = (d: string) => d.slice(2).replace(/-/g, '');  // YYYY-MM-DD → YYMMDD
+    const cabinPath = isBusiness ? '?cabinclass=business' : '';
+    let bookingUrl: string;
+    if (isMulti) {
+      // Skyscanner doesn't have an easy 4-segment URL; link to multi-city builder
+      bookingUrl = `https://www.skyscanner.com.tw/transport/flights/${params.from.toLowerCase()}/${params.to.toLowerCase()}/${fmtDate(outDateStr)}/${fmtDate(retDateStr)}/${cabinPath}`;
+    } else if (isOneWay) {
+      bookingUrl = `https://www.skyscanner.com.tw/transport/flights/${params.from.toLowerCase()}/${params.to.toLowerCase()}/${fmtDate(outDateStr)}/${cabinPath}`;
+    } else {
+      bookingUrl = `https://www.skyscanner.com.tw/transport/flights/${params.from.toLowerCase()}/${params.to.toLowerCase()}/${fmtDate(outDateStr)}/${fmtDate(retDateStr)}/${cabinPath}`;
+    }
 
     return {
       totalPrice: price,
