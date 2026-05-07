@@ -115,22 +115,35 @@ function generateStub(params: SearchParams): FlightCombination[] {
     const airlines = ['長榮航空', '中華航空', '星宇航空', '日本航空', '全日空', '台灣虎航'];
     const airline = airlines[Math.floor(Math.random() * airlines.length)];
 
-    // Skyscanner deep-link (works as fallback until eztravel deep-link is cracked).
-    // eztravel SPA does not support URL-param deep-linking; "eztravel" link goes
-    // to homepage as the fallback option.
-    const fmtSky = (d: string) => d.slice(2).replace(/-/g, '');  // YYYY-MM-DD → YYMMDD
-    const cabinSky = isBusiness ? '?cabinclass=business' : '';
-    const skyFrom = params.from.toLowerCase();
-    const skyTo = params.to.toLowerCase();
-    let skyscanner: string;
+    // Eztravel deep-link URL format (discovered via dev tools):
+    //   /tickets-roundtrip-{from}-{to}/?outbounddate=DD/MM/YYYY&inbounddate=DD/MM/YYYY&...
+    //   /tickets-oneway-{from}-{to}/?outbounddate=DD/MM/YYYY&...
+    const fmtEz = (iso: string) => {
+      const [y, m, d] = iso.split('-');
+      return encodeURIComponent(`${d}/${m}/${y}`);
+    };
+    const cabinEz = isBusiness ? 'business' : 'any';
+    const ezFrom = params.from.toLowerCase();
+    const ezTo = params.to.toLowerCase();
+    let eztravel: string;
     if (isOneWay) {
-      skyscanner = `https://www.skyscanner.com.tw/transport/flights/${skyFrom}/${skyTo}/${fmtSky(outDateStr)}/${cabinSky}`;
+      eztravel = `https://flight.eztravel.com.tw/tickets-oneway-${ezFrom}-${ezTo}/?outbounddate=${fmtEz(outDateStr)}&dport=&aport=&adults=1&children=0&infants=0&direct=false&cabintype=${cabinEz}&airline=`;
     } else {
-      skyscanner = `https://www.skyscanner.com.tw/transport/flights/${skyFrom}/${skyTo}/${fmtSky(outDateStr)}/${fmtSky(retDateStr)}/${cabinSky}`;
+      eztravel = `https://flight.eztravel.com.tw/tickets-roundtrip-${ezFrom}-${ezTo}/?outbounddate=${fmtEz(outDateStr)}&inbounddate=${fmtEz(retDateStr)}&dport=&aport=&adults=1&children=0&infants=0&direct=false&cabintype=${cabinEz}&airline=`;
     }
 
-    const bookingUrls = { skyscanner, eztravel: 'https://flight.eztravel.com.tw/' };
-    const bookingUrl = skyscanner; // primary fallback
+    // Skyscanner as backup
+    const fmtSky = (d: string) => d.slice(2).replace(/-/g, '');
+    const cabinSky = isBusiness ? '?cabinclass=business' : '';
+    let skyscanner: string;
+    if (isOneWay) {
+      skyscanner = `https://www.skyscanner.com.tw/transport/flights/${ezFrom}/${ezTo}/${fmtSky(outDateStr)}/${cabinSky}`;
+    } else {
+      skyscanner = `https://www.skyscanner.com.tw/transport/flights/${ezFrom}/${ezTo}/${fmtSky(outDateStr)}/${fmtSky(retDateStr)}/${cabinSky}`;
+    }
+
+    const bookingUrls = { eztravel, skyscanner };
+    const bookingUrl = eztravel; // primary now is real eztravel deep-link
 
     return {
       totalPrice: price,
@@ -198,20 +211,30 @@ function generateMultiCityStub(segments: FlightSegmentSpec[], cabin: 'economy' |
     // Build descriptive label using segments
     const route = segments.map((s) => `${s.from}→${s.to}`).join(' / ');
 
+    // Multi-city eztravel URL pattern (best guess based on roundtrip pattern)
+    const fmtEz = (iso: string) => {
+      const [y, m, d] = iso.split('-');
+      return encodeURIComponent(`${d}/${m}/${y}`);
+    };
+    const segParams = segments
+      .map((s, i) => `from${i + 1}=${s.from.toLowerCase()}&to${i + 1}=${s.to.toLowerCase()}&date${i + 1}=${fmtEz(s.date)}`)
+      .join('&');
+    const ezMulti = `https://flight.eztravel.com.tw/tickets-multi/?${segParams}&adults=1&children=0&infants=0&cabintype=${cabin === 'business' ? 'business' : 'any'}`;
+
     return {
       totalPrice: total,
       currency: 'TWD',
-      outStation: segments[0].from,  // first segment from = outstation
-      outboundDate: segments[1].date || segments[0].date,  // outbound real travel = seg 2
-      returnDate: segments[2].date,  // return real travel = seg 3
-      outboundAirport: segments[1].to,  // main destination
+      outStation: segments[0].from,
+      outboundDate: segments[1].date || segments[0].date,
+      returnDate: segments[2].date,
+      outboundAirport: segments[1].to,
       airline: `${airline} (${route})`,
       cabin,
       segments: [],
       weekdayDays: 0,
       source: 'eztravel' as const,
-      bookingUrl: 'https://flight.eztravel.com.tw/',
-      bookingUrls: { eztravel: 'https://flight.eztravel.com.tw/' },
+      bookingUrl: ezMulti,
+      bookingUrls: { eztravel: ezMulti },
     };
   });
 }
