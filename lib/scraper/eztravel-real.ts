@@ -1,5 +1,5 @@
 // Real eztravel scraper using Playwright
-import { getBrowserContext } from './playwright-runtime';
+import { openBrowser, closeHandle } from './playwright-runtime';
 import type { FlightCombination, FlightSegmentSpec } from '@/types';
 
 interface AirlinePrice {
@@ -75,8 +75,8 @@ interface ScrapeDebug {
 }
 
 async function scrapePricesFromUrl(url: string, debug?: ScrapeDebug[]): Promise<AirlinePrice[]> {
-  const ctx = await getBrowserContext();
-  const page = await ctx.newPage();
+  const handle = await openBrowser();
+  const page = await handle.context.newPage();
   try {
     debug?.push({ step: 'load homepage' });
     await page.goto('https://flight.eztravel.com.tw/', { waitUntil: 'domcontentloaded', timeout: 45000 });
@@ -133,7 +133,7 @@ async function scrapePricesFromUrl(url: string, debug?: ScrapeDebug[]): Promise<
     return airlines.sort((a, b) => a.price - b.price);
   } finally {
     await page.close().catch(() => {});
-    await ctx.close().catch(() => {});
+    await closeHandle(handle);
   }
 }
 
