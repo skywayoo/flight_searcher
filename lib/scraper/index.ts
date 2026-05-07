@@ -100,10 +100,13 @@ export async function scrapeTarget(target: FlightTarget): Promise<FlightCombinat
     }
   }
 
-  let filtered = allResults;
-  if (target.budgetCap) {
-    filtered = filtered.filter((r) => r.cabin === 'business' || r.totalPrice <= target.budgetCap!);
-  }
+  // Apply budget caps separately per cabin.
+  // budgetCap = economy cap; business uses BUSINESS_BUDGET_CAP env (default 70000).
+  const businessCap = parseInt(process.env.BUSINESS_BUDGET_CAP ?? '70000', 10);
+  const econCap = target.budgetCap ?? Infinity;
+  const filtered = allResults.filter((r) =>
+    r.cabin === 'business' ? r.totalPrice <= businessCap : r.totalPrice <= econCap
+  );
 
   const economy = filtered.filter((r) => r.cabin !== 'business').sort((a, b) => a.totalPrice - b.totalPrice).slice(0, 5);
   const business = filtered.filter((r) => r.cabin === 'business').sort((a, b) => a.totalPrice - b.totalPrice).slice(0, 3);
