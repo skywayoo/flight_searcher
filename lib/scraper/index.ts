@@ -52,7 +52,8 @@ export async function scrapeTarget(target: FlightTarget): Promise<FlightCombinat
           : await scrapeMultiCity(segments, cabin);
         allResults.push(...results);
       } catch (e) {
-        console.error(`multi-city scrape failed (${cabin}):`, e);
+        const err = e instanceof Error ? `${e.name}: ${e.message}\n${e.stack?.split('\n').slice(0, 5).join('\n')}` : String(e);
+        console.error(`multi-city scrape failed (${cabin}): ${err}`);
       }
       await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
     }
