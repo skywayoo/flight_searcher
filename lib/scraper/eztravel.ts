@@ -211,15 +211,24 @@ function generateMultiCityStub(segments: FlightSegmentSpec[], cabin: 'economy' |
     // Build descriptive label using segments
     const route = segments.map((s) => `${s.from}→${s.to}`).join(' / ');
 
-    // Multi-city eztravel URL pattern (best guess based on roundtrip pattern)
-    const fmtEz = (iso: string) => {
+    // Multi-city eztravel URL — confirmed format from real search:
+    //   /tickets-multicity-{FROM}-{TO}/?dcity1=&acity1=&date1=DD/MM/YYYY&dport1=&aport1=&dcity2=...
+    // Path uses UPPERCASE airport codes; dates are DD/MM/YYYY (no URL-encoding needed but safe).
+    const fmtEzDate = (iso: string) => {
       const [y, m, d] = iso.split('-');
-      return encodeURIComponent(`${d}/${m}/${y}`);
+      return `${d}/${m}/${y}`;  // eztravel accepts plain DD/MM/YYYY
     };
     const segParams = segments
-      .map((s, i) => `from${i + 1}=${s.from.toLowerCase()}&to${i + 1}=${s.to.toLowerCase()}&date${i + 1}=${fmtEz(s.date)}`)
+      .map((s, i) => {
+        const from = s.from.toUpperCase();
+        const to = s.to.toUpperCase();
+        const n = i + 1;
+        return `dcity${n}=${from}&acity${n}=${to}&date${n}=${encodeURIComponent(fmtEzDate(s.date))}&dport${n}=&aport${n}=`;
+      })
       .join('&');
-    const ezMulti = `https://flight.eztravel.com.tw/tickets-multi/?${segParams}&adults=1&children=0&infants=0&cabintype=${cabin === 'business' ? 'business' : 'any'}`;
+    const firstFrom = segments[0].from.toUpperCase();
+    const firstTo = segments[0].to.toUpperCase();
+    const ezMulti = `https://flight.eztravel.com.tw/tickets-multicity-${firstFrom}-${firstTo}/?${segParams}&adults=1&children=0&infants=0&direct=false&cabintype=${cabin === 'business' ? 'business' : 'any'}`;
 
     return {
       totalPrice: total,
