@@ -141,11 +141,46 @@ export async function scrapeMultiCityReal(
 ): Promise<FlightCombination[]> {
   if (segments.length !== 4) return [];
 
-  // Single attempt to keep within Vercel function time budget.
-  // Cron daily scans + multiple targets cover date variations naturally.
-  const url = buildMultiCityUrl(segments, cabin);
-  const prices = await scrapePricesFromUrl(url);
+  // Try a few date variations per segment to find cheapest combo.
+  // Each scrape ~30s; we do 3 attempts × 2 cabins = ~180s, within Vercel 5min timeout.
+  function shiftDate(iso: string, days: number): string {
+    const d = new Date(iso);
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split('T')[0];
+  }
+  const variations = [
+    { o1: 0, o2: 0, o4: 0 },        // base dates
+    { o1: -3, o2: -3, o4: -1 },     // earlier (228 fri, NZ earlier, seg4 Thu)
+    { o1: 1, o2: 4, o4: 1 },        // later (228 mon shifted, NZ later, seg4 Sat)
+  ];
+
+  let prices: AirlinePrice[] = [];
+  let bestUrl = buildMultiCityUrl(segments, cabin);
+  let bestPrice = Infinity;
+  let bestSegments = segments;
+
+  for (const v of variations) {
+    const tried = [
+      { ...segments[0], date: shiftDate(segments[0].date, v.o1) },
+      { ...segments[1], date: shiftDate(segments[1].date, v.o2) },
+      { ...segments[2], date: shiftDate(segments[2].date, v.o2) },
+      { ...segments[3], date: shiftDate(segments[3].date, v.o4) },
+    ];
+    const url = buildMultiCityUrl(tried, cabin);
+    const result = await scrapePricesFromUrl(url);
+    if (result.length > 0) {
+      const cheapest = result[0].price;
+      if (cheapest < bestPrice) {
+        bestPrice = cheapest;
+        prices = result;
+        bestUrl = url;
+        bestSegments = tried;
+      }
+    }
+  }
+
   if (prices.length === 0) return [];
+  segments = bestSegments;
 
   const tripStart = segments[1].date || segments[0].date;
   const tripEnd = segments[2].date || segments[3].date;
@@ -163,8 +198,8 @@ export async function scrapeMultiCityReal(
     segments: [],
     weekdayDays: countWeekdays(tripStart, tripEnd),
     source: 'eztravel' as const,
-    bookingUrl: url,
-    bookingUrls: { eztravel: url },
+    bookingUrl: bestUrl,
+    bookingUrls: { eztravel: bestUrl },
   }));
 }
 
