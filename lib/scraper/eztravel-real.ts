@@ -64,19 +64,37 @@ function countWeekdays(start: string, end: string): number {
  * Visit an eztravel result page and extract per-airline cheapest prices.
  * Returns sorted list (cheapest first). Empty array if no results.
  */
-async function scrapePricesFromUrl(url: string): Promise<AirlinePrice[]> {
+interface ScrapeDebug {
+  step: string;
+  bodyLen?: number;
+  hasNoResults?: boolean;
+  hasTwd?: boolean;
+  finalUrl?: string;
+  title?: string;
+  airlineCount?: number;
+}
+
+async function scrapePricesFromUrl(url: string, debug?: ScrapeDebug[]): Promise<AirlinePrice[]> {
   const ctx = await getBrowserContext();
   const page = await ctx.newPage();
   try {
-    // Solve Incapsula via homepage first
+    debug?.push({ step: 'load homepage' });
     await page.goto('https://flight.eztravel.com.tw/', { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForTimeout(6000);
 
+    debug?.push({ step: 'navigate to result url' });
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    // Wait for filter panel to render (contains airline list with cheapest prices)
     await page.waitForTimeout(20000);
 
     const bodyText = await page.evaluate(() => document.body.innerText);
+    debug?.push({
+      step: 'after wait',
+      bodyLen: bodyText.length,
+      hasNoResults: bodyText.includes('沒有符合的結果'),
+      hasTwd: bodyText.includes('TWD'),
+      finalUrl: page.url(),
+      title: await page.title(),
+    });
     if (bodyText.includes('沒有符合的結果')) return [];
 
     // Extract airlines from the airline filter group only.
@@ -111,12 +129,15 @@ async function scrapePricesFromUrl(url: string): Promise<AirlinePrice[]> {
       return out;
     });
 
+    debug?.push({ step: 'parsed airlines', airlineCount: airlines.length });
     return airlines.sort((a, b) => a.price - b.price);
   } finally {
     await page.close().catch(() => {});
     await ctx.close().catch(() => {});
   }
 }
+
+export { scrapePricesFromUrl, type ScrapeDebug };
 
 export async function scrapeMultiCityReal(
   segments: FlightSegmentSpec[],
