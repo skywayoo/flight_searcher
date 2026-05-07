@@ -122,39 +122,15 @@ export default async function TargetDetail({ params }: { params: Promise<{ id: s
                           </div>
                           <p className="text-lg font-bold text-white">${fmt(c.totalPrice)}</p>
                         </div>
-                        {(c.bookingUrls || c.bookingUrl) && (
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {c.bookingUrls?.eztravel && (
-                              <a
-                                href={c.bookingUrls.eztravel}
-                                target="_blank"
-                                rel="noopener"
-                                className="text-center rounded-lg bg-green-600/20 border border-green-600/40 py-1.5 text-xs text-green-300 hover:bg-green-600/30"
-                              >
-                                易遊網
-                              </a>
-                            )}
-                            {c.bookingUrls?.skyscanner && (
-                              <a
-                                href={c.bookingUrls.skyscanner}
-                                target="_blank"
-                                rel="noopener"
-                                className="text-center rounded-lg bg-blue-600/20 border border-blue-600/40 py-1.5 text-xs text-blue-300 hover:bg-blue-600/30"
-                              >
-                                Skyscanner（可看實際價）
-                              </a>
-                            )}
-                            {!c.bookingUrls && c.bookingUrl && (
-                              <a
-                                href={c.bookingUrl}
-                                target="_blank"
-                                rel="noopener"
-                                className="col-span-2 text-center rounded-lg bg-blue-600/20 border border-blue-600/40 py-1.5 text-xs text-blue-300 hover:bg-blue-600/30"
-                              >
-                                查看航班 →
-                              </a>
-                            )}
-                          </div>
+                        {(c.bookingUrls?.eztravel || c.bookingUrl) && (
+                          <a
+                            href={c.bookingUrls?.eztravel || c.bookingUrl}
+                            target="_blank"
+                            rel="noopener"
+                            className="block text-center rounded-lg bg-green-600/20 border border-green-600/40 py-1.5 text-xs text-green-300 hover:bg-green-600/30"
+                          >
+                            到易遊網訂購 →
+                          </a>
                         )}
                       </div>
                     );

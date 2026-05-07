@@ -132,18 +132,8 @@ function generateStub(params: SearchParams): FlightCombination[] {
       eztravel = `https://flight.eztravel.com.tw/tickets-roundtrip-${ezFrom}-${ezTo}/?outbounddate=${fmtEz(outDateStr)}&inbounddate=${fmtEz(retDateStr)}&dport=&aport=&adults=1&children=0&infants=0&direct=false&cabintype=${cabinEz}&airline=`;
     }
 
-    // Skyscanner as backup
-    const fmtSky = (d: string) => d.slice(2).replace(/-/g, '');
-    const cabinSky = isBusiness ? '?cabinclass=business' : '';
-    let skyscanner: string;
-    if (isOneWay) {
-      skyscanner = `https://www.skyscanner.com.tw/transport/flights/${ezFrom}/${ezTo}/${fmtSky(outDateStr)}/${cabinSky}`;
-    } else {
-      skyscanner = `https://www.skyscanner.com.tw/transport/flights/${ezFrom}/${ezTo}/${fmtSky(outDateStr)}/${fmtSky(retDateStr)}/${cabinSky}`;
-    }
-
-    const bookingUrls = { eztravel, skyscanner };
-    const bookingUrl = eztravel; // primary now is real eztravel deep-link
+    const bookingUrls = { eztravel };
+    const bookingUrl = eztravel;
 
     return {
       totalPrice: price,
