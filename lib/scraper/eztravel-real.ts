@@ -145,28 +145,41 @@ export async function scrapeMultiCityReal(
 ): Promise<FlightCombination[]> {
   if (segments.length !== 4) return [];
 
-  // Try the user's exact dates first
-  let url = buildMultiCityUrl(segments, cabin);
-  let prices = await scrapePricesFromUrl(url);
+  // Try a few date variations on first segment (228 weekend flexibility)
+  // Limited to 3 attempts total to stay under Vercel 5min function timeout.
+  function shiftDate(iso: string, days: number): string {
+    const d = new Date(iso);
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split('T')[0];
+  }
+  const variations = [
+    { o1: 0, o2: 0, o4: 0 },
+    { o1: 1, o2: 0, o4: 1 },     // try seg1 +1, seg4 +1 (228 sun→mon)
+    { o1: -3, o2: 7, o4: -1 },   // big shift: seg1 fri before, NZ +7d, seg4 -1
+  ];
 
-  // If no results and segments have date ranges, retry with shifted dates
-  if (prices.length === 0) {
-    const hasRanges = segments.some((s) => s.dateEnd && s.dateEnd !== s.date);
-    if (hasRanges) {
-      // Try a couple of alternate combinations within ranges
-      // For simplicity: try +1 day shifted dates
-      const shifted = segments.map((s) => {
-        const d = new Date(s.date);
-        d.setDate(d.getDate() + 1);
-        return { ...s, date: d.toISOString().split('T')[0] };
-      });
-      url = buildMultiCityUrl(shifted, cabin);
-      prices = await scrapePricesFromUrl(url);
-      if (prices.length > 0) segments = shifted;
+  let prices: AirlinePrice[] = [];
+  let bestSegments = segments;
+  let url = buildMultiCityUrl(segments, cabin);
+
+  for (const v of variations) {
+    const tried = [
+      { ...segments[0], date: shiftDate(segments[0].date, v.o1) },
+      { ...segments[1], date: shiftDate(segments[1].date, v.o2) },
+      { ...segments[2], date: shiftDate(segments[2].date, v.o2) },
+      { ...segments[3], date: shiftDate(segments[3].date, v.o4) },
+    ];
+    url = buildMultiCityUrl(tried, cabin);
+    const result = await scrapePricesFromUrl(url);
+    if (result.length > 0) {
+      prices = result;
+      bestSegments = tried;
+      break;
     }
   }
 
   if (prices.length === 0) return [];
+  segments = bestSegments;
 
   const tripStart = segments[1].date || segments[0].date;
   const tripEnd = segments[2].date || segments[3].date;
