@@ -171,10 +171,18 @@ export async function getFlightResults(targetId: string, limit = 90): Promise<Fl
   return r.results.map(rowToResult);
 }
 
+function getRichConcat(p: Record<string, unknown>, key: string): string {
+  // Notion rich_text supports multiple text segments; concat all to bypass 2000-char limit
+  const props = p as { properties: Record<string, { rich_text?: { plain_text: string }[] }> };
+  const segs = props.properties[key]?.rich_text;
+  if (!segs) return '';
+  return segs.map((s) => s.plain_text).join('');
+}
+
 function rowToResult(p: Record<string, unknown>): FlightResult {
   let top5: FlightCombination[] = [];
   try {
-    const raw = getRich(p, 'Top5');
+    const raw = getRichConcat(p, 'Top5');
     if (raw) top5 = JSON.parse(raw);
   } catch { /* ignore */ }
   return {
@@ -190,13 +198,23 @@ function rowToResult(p: Record<string, unknown>): FlightResult {
   };
 }
 
+// Notion rich_text segment max is 2000 chars; we split JSON across multiple segments
+function chunkText(s: string, size = 1900): { text: { content: string } }[] {
+  const out: { text: { content: string } }[] = [];
+  for (let i = 0; i < s.length; i += size) {
+    out.push({ text: { content: s.slice(i, i + size) } });
+  }
+  // Notion rich_text array max is 100 items; cap to be safe
+  return out.slice(0, 100);
+}
+
 export async function createFlightResult(r: Omit<FlightResult, 'id'>): Promise<string> {
   const props: Record<string, unknown> = {
     Name: { title: [{ text: { content: `${r.targetId.slice(0, 8)} ${r.scrapeDate}` } }] },
     TargetId: { rich_text: [{ text: { content: r.targetId } }] },
     ScrapeDate: { date: { start: r.scrapeDate } },
     CheapestPrice: { number: r.cheapestPrice },
-    Top5: { rich_text: [{ text: { content: JSON.stringify(r.top5).slice(0, 1990) } }] },
+    Top5: { rich_text: chunkText(JSON.stringify(r.top5)) },
     Source: { select: { name: r.source } },
   };
   if (r.prevCheapestPrice) props.PrevCheapestPrice = { number: r.prevCheapestPrice };
