@@ -155,3 +155,63 @@ async function scrapeReal(_params: SearchParams): Promise<FlightCombination[]> {
   // Will be implemented once UI/cron flow is verified working
   return [];
 }
+
+import type { FlightSegmentSpec } from '@/types';
+
+/**
+ * Scrape a user-defined multi-city itinerary (4 segments).
+ * Each segment has its own from/to/date(range).
+ */
+export async function scrapeMultiCity(
+  segments: FlightSegmentSpec[],
+  cabin: 'economy' | 'business' = 'economy',
+): Promise<FlightCombination[]> {
+  if (segments.length !== 4) return [];
+  // Use stub generator: estimate the 4-segment ticket price as 3x the
+  // average one-way price across all segments
+  return generateMultiCityStub(segments, cabin);
+}
+
+function generateMultiCityStub(segments: FlightSegmentSpec[], cabin: 'economy' | 'business'): FlightCombination[] {
+  // Reuse the price table from generateStub by calling it once per segment
+  // and summing
+  const samplePrices = segments.map((s) => {
+    const stub = generateStub({
+      from: s.from, to: s.to, outboundStart: s.date, outboundEnd: s.dateEnd || s.date,
+      tripType: 'one_way', cabin: 'economy',  // use one-way base
+    });
+    return stub[0]?.totalPrice ?? 15000;
+  });
+
+  // Total ticket price ≈ sum, but outstation typically gives ~25% discount
+  const baseTotal = samplePrices.reduce((s, n) => s + n, 0);
+  const adjustedBase = Math.round(baseTotal * 0.75);
+  const cabinMult = cabin === 'business' ? 4.0 : 1.0;
+
+  // Generate 3 variations
+  return Array.from({ length: 3 }, () => {
+    const noise = 1 + (Math.random() - 0.5) * 0.2;
+    const total = Math.round(adjustedBase * noise * cabinMult);
+    const airlines = ['長榮航空', '中華航空', '星宇航空', '日本航空', '全日空', '國泰航空'];
+    const airline = airlines[Math.floor(Math.random() * airlines.length)];
+
+    // Build descriptive label using segments
+    const route = segments.map((s) => `${s.from}→${s.to}`).join(' / ');
+
+    return {
+      totalPrice: total,
+      currency: 'TWD',
+      outStation: segments[0].from,  // first segment from = outstation
+      outboundDate: segments[1].date || segments[0].date,  // outbound real travel = seg 2
+      returnDate: segments[2].date,  // return real travel = seg 3
+      outboundAirport: segments[1].to,  // main destination
+      airline: `${airline} (${route})`,
+      cabin,
+      segments: [],
+      weekdayDays: 0,
+      source: 'eztravel' as const,
+      bookingUrl: 'https://flight.eztravel.com.tw/',
+      bookingUrls: { eztravel: 'https://flight.eztravel.com.tw/' },
+    };
+  });
+}

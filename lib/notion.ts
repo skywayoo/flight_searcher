@@ -97,6 +97,11 @@ function rowToTarget(p: Record<string, unknown>): FlightTarget {
     const raw = getRich(p, 'OutStations');
     if (raw) outStations = JSON.parse(raw);
   } catch { /* ignore */ }
+  let segments: FlightTarget['segments'];
+  try {
+    const raw = getRich(p, 'Segments');
+    if (raw) segments = JSON.parse(raw);
+  } catch { /* ignore */ }
   return {
     id: pid(p),
     name: getTitle(p),
@@ -108,6 +113,7 @@ function rowToTarget(p: Record<string, unknown>): FlightTarget {
     outboundEnd: getDate(p, 'OutboundEnd'),
     tripLengthMin: getNum(p, 'TripLengthMin') || undefined,
     tripLengthMax: getNum(p, 'TripLengthMax') || undefined,
+    segments,
     outStations: outStations.length ? outStations : undefined,
     budgetCap: getNum(p, 'BudgetCap') || undefined,
     includeBusiness: getBool(p, 'IncludeBusiness'),
@@ -132,6 +138,7 @@ export async function createFlightTarget(t: Omit<FlightTarget, 'id' | 'createdAt
   };
   if (t.tripLengthMin) props.TripLengthMin = { number: t.tripLengthMin };
   if (t.tripLengthMax) props.TripLengthMax = { number: t.tripLengthMax };
+  if (t.segments?.length) props.Segments = { rich_text: [{ text: { content: JSON.stringify(t.segments) } }] };
   if (t.outStations?.length) props.OutStations = { rich_text: [{ text: { content: JSON.stringify(t.outStations) } }] };
   if (t.budgetCap) props.BudgetCap = { number: t.budgetCap };
   if (t.includeBusiness) props.IncludeBusiness = { checkbox: true };

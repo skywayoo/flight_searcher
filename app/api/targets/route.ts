@@ -14,6 +14,7 @@ export async function POST(req: Request) {
       outboundEnd: body.outboundEnd,
       tripLengthMin: body.tripLengthMin,
       tripLengthMax: body.tripLengthMax,
+      segments: body.segments,
       outStations: body.outStations,
       budgetCap: body.budgetCap,
       includeBusiness: body.includeBusiness,

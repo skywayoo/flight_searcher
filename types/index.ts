@@ -3,21 +3,30 @@ export type TripType = 'round_trip' | 'one_way' | 'multi_city_4';
 
 export type TargetStatus = 'active' | 'paused';
 
+export interface FlightSegmentSpec {
+  from: string;       // IATA
+  to: string;         // IATA  ('' = use destination region)
+  date: string;       // ISO date (specific) — start of small range
+  dateEnd?: string;   // ISO date — end of range (search whole window)
+}
+
 export interface FlightTarget {
   id: string;
   name: string;                // user-given label e.g. "暑假東京"
   tripType: TripType;
-  departureAirport: string;    // IATA, e.g. "TPE"
+  departureAirport: string;    // IATA, e.g. "TPE" (used for round_trip / one_way)
   region: string;              // RegionKey e.g. "日本", "東南亞"
   // optional: limit to specific airports within the region; empty = all
   destinationAirports: string[];
-  // Date range for outbound search
+  // Date range for outbound search (round_trip / one_way)
   outboundStart: string;       // ISO date
   outboundEnd: string;         // ISO date
   // For round-trip: trip length min/max in days
   tripLengthMin?: number;
   tripLengthMax?: number;
-  // For multi_city_4: list of out-stations to try (default: common cheap ones)
+  // For multi_city_4: 4 segments, each with own from/to/date(range)
+  segments?: FlightSegmentSpec[];
+  // For multi_city_4 (legacy): list of out-stations to try
   outStations?: string[];
   // Optional budget cap (TWD)
   budgetCap?: number;
