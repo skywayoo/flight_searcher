@@ -1,36 +1,23 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Flight Searcher
 
-## Getting Started
+易遊網機票監控與比價工具。
 
-First, run the development server:
+## Features
+- 設定監控目標（來回 / 單程 / 外站四段）
+- 區域搜尋（東北亞 / 東南亞 / 歐洲...）自動掃所有機場
+- 每天 cron 自動掃描，價格變動 Telegram 推播
+- 歷史價格紀錄
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Tech Stack
+- Next.js 16 (App Router)
+- TypeScript + Tailwind CSS v4
+- Notion API (儲存目標 + 結果)
+- Playwright (爬蟲，繞過 Incapsula)
+- Vercel (部署 + Cron)
+- Telegram Bot (通知)
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Cron
+每天 18:00 (UTC) = 02:00 (台灣) 自動掃描所有 active 目標。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Scraper Status
+目前是 stub 模式（產生假資料）。真實爬蟲需要 Playwright + 處理 Incapsula JS challenge，正在開發中。
