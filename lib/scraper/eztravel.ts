@@ -115,8 +115,9 @@ function generateStub(params: SearchParams): FlightCombination[] {
     const airlines = ['長榮航空', '中華航空', '星宇航空', '日本航空', '全日空', '台灣虎航'];
     const airline = airlines[Math.floor(Math.random() * airlines.length)];
 
-    // Generate deep-links to multiple OTAs since eztravel SPA doesn't support
-    // URL-param deep-linking. User can pick whichever site they prefer.
+    // Skyscanner deep-link (works as fallback until eztravel deep-link is cracked).
+    // eztravel SPA does not support URL-param deep-linking; "eztravel" link goes
+    // to homepage as the fallback option.
     const fmtSky = (d: string) => d.slice(2).replace(/-/g, '');  // YYYY-MM-DD → YYMMDD
     const cabinSky = isBusiness ? '?cabinclass=business' : '';
     const skyFrom = params.from.toLowerCase();
@@ -128,17 +129,8 @@ function generateStub(params: SearchParams): FlightCombination[] {
       skyscanner = `https://www.skyscanner.com.tw/transport/flights/${skyFrom}/${skyTo}/${fmtSky(outDateStr)}/${fmtSky(retDateStr)}/${cabinSky}`;
     }
 
-    // Trip.com format
-    const cabinTrip = isBusiness ? 'C' : 'Y';
-    let trip: string;
-    if (isOneWay) {
-      trip = `https://tw.trip.com/flights/showfarefirst?dcity1=${params.from}&acity1=${params.to}&ddate1=${outDateStr}&class=${cabinTrip}&triptype=ow`;
-    } else {
-      trip = `https://tw.trip.com/flights/showfarefirst?dcity1=${params.from}&acity1=${params.to}&ddate1=${outDateStr}&rdate1=${retDateStr}&class=${cabinTrip}&triptype=rt`;
-    }
-
-    const bookingUrls = { skyscanner, trip, eztravel: 'https://flight.eztravel.com.tw/' };
-    const bookingUrl = trip; // primary fallback
+    const bookingUrls = { skyscanner, eztravel: 'https://flight.eztravel.com.tw/' };
+    const bookingUrl = skyscanner; // primary fallback
 
     return {
       totalPrice: price,
