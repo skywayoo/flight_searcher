@@ -1,6 +1,9 @@
 import { FlightTarget, FlightCombination } from '@/types';
 import { getRegionAirports } from '@/lib/regions';
 import { scrapeOneSearch, scrapeMultiCity } from './eztravel';
+import { scrapeMultiCityReal, scrapeRoundTripReal, scrapeOneWayReal } from './eztravel-real';
+
+const USE_REAL = process.env.SCRAPER_MODE === 'real';
 
 // How many destination airports to actually try in one scan
 const MAX_DESTINATIONS_PER_SCAN = 6;
@@ -44,7 +47,9 @@ export async function scrapeTarget(target: FlightTarget): Promise<FlightCombinat
     }
     for (const cabin of cabins) {
       try {
-        const results = await scrapeMultiCity(segments, cabin);
+        const results = USE_REAL
+          ? await scrapeMultiCityReal(segments, cabin)
+          : await scrapeMultiCity(segments, cabin);
         allResults.push(...results);
       } catch (e) {
         console.error(`multi-city scrape failed (${cabin}):`, e);
@@ -62,16 +67,34 @@ export async function scrapeTarget(target: FlightTarget): Promise<FlightCombinat
     for (const dest of targetDests) {
       for (const cabin of cabins) {
         try {
-          const results = await scrapeOneSearch({
-            from: target.departureAirport,
-            to: dest.code,
-            outboundStart: target.outboundStart,
-            outboundEnd: target.outboundEnd,
-            tripType: target.tripType,
-            tripLengthMin: target.tripLengthMin,
-            tripLengthMax: target.tripLengthMax,
-            cabin,
-          });
+          let results: FlightCombination[];
+          if (USE_REAL) {
+            // Real scraper: use middle of date range as preferred date
+            const start = new Date(target.outboundStart);
+            const end = new Date(target.outboundEnd);
+            const mid = new Date((start.getTime() + end.getTime()) / 2);
+            const outIso = mid.toISOString().split('T')[0];
+            if (target.tripType === 'one_way') {
+              results = await scrapeOneWayReal(target.departureAirport, dest.code, outIso, cabin);
+            } else {
+              const tripLen = target.tripLengthMin ?? 7;
+              const ret = new Date(mid);
+              ret.setDate(ret.getDate() + tripLen);
+              const retIso = ret.toISOString().split('T')[0];
+              results = await scrapeRoundTripReal(target.departureAirport, dest.code, outIso, retIso, cabin);
+            }
+          } else {
+            results = await scrapeOneSearch({
+              from: target.departureAirport,
+              to: dest.code,
+              outboundStart: target.outboundStart,
+              outboundEnd: target.outboundEnd,
+              tripType: target.tripType,
+              tripLengthMin: target.tripLengthMin,
+              tripLengthMax: target.tripLengthMax,
+              cabin,
+            });
+          }
           allResults.push(...results);
         } catch (e) {
           console.error(`scrape failed for ${dest.code} ${cabin}:`, e);
