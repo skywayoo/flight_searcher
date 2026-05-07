@@ -13,8 +13,18 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     if (!target) return NextResponse.json({ error: 'Target not found' }, { status: 404 });
 
     const start = Date.now();
-    const top5 = await scrapeTarget(target);
+    let top5;
+    let scrapeError: string | undefined;
+    try {
+      top5 = await scrapeTarget(target);
+    } catch (e) {
+      scrapeError = e instanceof Error ? `${e.name}: ${e.message}\n${(e.stack ?? '').split('\n').slice(0, 8).join('\n')}` : String(e);
+      top5 = [];
+    }
     const durationMs = Date.now() - start;
+    if (scrapeError) {
+      return NextResponse.json({ error: scrapeError, durationMs }, { status: 500 });
+    }
 
     const cheapest = top5[0]?.totalPrice ?? 0;
 

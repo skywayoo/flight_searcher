@@ -46,15 +46,10 @@ export async function scrapeTarget(target: FlightTarget): Promise<FlightCombinat
       ];
     }
     for (const cabin of cabins) {
-      try {
-        const results = USE_REAL
-          ? await scrapeMultiCityReal(segments, cabin)
-          : await scrapeMultiCity(segments, cabin);
-        allResults.push(...results);
-      } catch (e) {
-        const err = e instanceof Error ? `${e.name}: ${e.message}\n${e.stack?.split('\n').slice(0, 5).join('\n')}` : String(e);
-        console.error(`multi-city scrape failed (${cabin}): ${err}`);
-      }
+      const results = USE_REAL
+        ? await scrapeMultiCityReal(segments, cabin)
+        : await scrapeMultiCity(segments, cabin);
+      allResults.push(...results);
       await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
     }
   } else {
