@@ -115,21 +115,30 @@ function generateStub(params: SearchParams): FlightCombination[] {
     const airlines = ['長榮航空', '中華航空', '星宇航空', '日本航空', '全日空', '台灣虎航'];
     const airline = airlines[Math.floor(Math.random() * airlines.length)];
 
-    // Booking URL: use Skyscanner deep-link as fallback (actually shows results).
-    // eztravel SPA doesn't support URL-param deep-link to results, so until
-    // the real scraper captures the actual results URL, Skyscanner gives users
-    // a working preview of comparable flights.
-    const fmtDate = (d: string) => d.slice(2).replace(/-/g, '');  // YYYY-MM-DD → YYMMDD
-    const cabinPath = isBusiness ? '?cabinclass=business' : '';
-    let bookingUrl: string;
-    if (isMulti) {
-      // Skyscanner doesn't have an easy 4-segment URL; link to multi-city builder
-      bookingUrl = `https://www.skyscanner.com.tw/transport/flights/${params.from.toLowerCase()}/${params.to.toLowerCase()}/${fmtDate(outDateStr)}/${fmtDate(retDateStr)}/${cabinPath}`;
-    } else if (isOneWay) {
-      bookingUrl = `https://www.skyscanner.com.tw/transport/flights/${params.from.toLowerCase()}/${params.to.toLowerCase()}/${fmtDate(outDateStr)}/${cabinPath}`;
+    // Generate deep-links to multiple OTAs since eztravel SPA doesn't support
+    // URL-param deep-linking. User can pick whichever site they prefer.
+    const fmtSky = (d: string) => d.slice(2).replace(/-/g, '');  // YYYY-MM-DD → YYMMDD
+    const cabinSky = isBusiness ? '?cabinclass=business' : '';
+    const skyFrom = params.from.toLowerCase();
+    const skyTo = params.to.toLowerCase();
+    let skyscanner: string;
+    if (isOneWay) {
+      skyscanner = `https://www.skyscanner.com.tw/transport/flights/${skyFrom}/${skyTo}/${fmtSky(outDateStr)}/${cabinSky}`;
     } else {
-      bookingUrl = `https://www.skyscanner.com.tw/transport/flights/${params.from.toLowerCase()}/${params.to.toLowerCase()}/${fmtDate(outDateStr)}/${fmtDate(retDateStr)}/${cabinPath}`;
+      skyscanner = `https://www.skyscanner.com.tw/transport/flights/${skyFrom}/${skyTo}/${fmtSky(outDateStr)}/${fmtSky(retDateStr)}/${cabinSky}`;
     }
+
+    // Trip.com format
+    const cabinTrip = isBusiness ? 'C' : 'Y';
+    let trip: string;
+    if (isOneWay) {
+      trip = `https://tw.trip.com/flights/showfarefirst?dcity1=${params.from}&acity1=${params.to}&ddate1=${outDateStr}&class=${cabinTrip}&triptype=ow`;
+    } else {
+      trip = `https://tw.trip.com/flights/showfarefirst?dcity1=${params.from}&acity1=${params.to}&ddate1=${outDateStr}&rdate1=${retDateStr}&class=${cabinTrip}&triptype=rt`;
+    }
+
+    const bookingUrls = { skyscanner, trip, eztravel: 'https://flight.eztravel.com.tw/' };
+    const bookingUrl = trip; // primary fallback
 
     return {
       totalPrice: price,
@@ -144,6 +153,7 @@ function generateStub(params: SearchParams): FlightCombination[] {
       weekdayDays: isOneWay ? countWeekdays(outDateStr, outDateStr) : countWeekdays(outDateStr, retDateStr),
       source: 'eztravel' as const,
       bookingUrl,
+      bookingUrls,
     };
   });
 }

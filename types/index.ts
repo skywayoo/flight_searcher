@@ -44,6 +44,7 @@ export interface FlightCombination {
   weekdayDays: number;         // count of weekdays in trip (Mon-Fri)
   source: 'eztravel';
   bookingUrl?: string;
+  bookingUrls?: { skyscanner?: string; trip?: string; eztravel?: string };
 }
 
 export interface FlightSegment {
