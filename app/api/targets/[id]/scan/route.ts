@@ -27,13 +27,21 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     }
 
     const cheapest = top5[0]?.totalPrice ?? 0;
+    const today = new Date().toISOString().split('T')[0];
 
-    // Compare to previous result
-    const prevResults = await getFlightResults(id, 1);
-    const prev = prevResults[0]?.cheapestPrice;
+    // If no flights found, only update lastScrapeAt — don't store a 0 result
+    // and don't trigger notifications (so we don't spam "100% drop" alerts).
+    if (cheapest === 0 || top5.length === 0) {
+      await updateFlightTarget(id, { lastScrapeAt: today });
+      return NextResponse.json({ cheapest: 0, count: 0, durationMs, skipped: 'no flights' });
+    }
+
+    // Compare to previous result (only against meaningful prev prices)
+    const prevResults = await getFlightResults(id, 5);
+    const prevValid = prevResults.find((r) => r.cheapestPrice > 0);
+    const prev = prevValid?.cheapestPrice;
     const changePct = prev ? (cheapest - prev) / prev : undefined;
 
-    const today = new Date().toISOString().split('T')[0];
     await createFlightResult({
       targetId: id,
       scrapeDate: today,
@@ -47,14 +55,12 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
     await updateFlightTarget(id, { lastScrapeAt: today });
 
-    // Telegram notification if significant drop or new low
+    // Telegram: only on real price drops, not first-scan-with-data
     if (prev && changePct !== undefined) {
       const dropThreshold = -((target.notifyDropPct ?? 5) / 100);
-      if (changePct <= dropThreshold || cheapest < prev) {
+      if (changePct <= dropThreshold) {
         await notifyPriceChange(target, cheapest, prev, changePct, top5[0]);
       }
-    } else if (!prev && cheapest > 0) {
-      await notifyPriceChange(target, cheapest, undefined, undefined, top5[0]);
     }
 
     return NextResponse.json({ cheapest, count: top5.length, durationMs });

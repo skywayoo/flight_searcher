@@ -18,19 +18,14 @@ function fmt(n: number) {
 export default async function Home() {
   const targets = await getFlightTargets();
 
-  // Get latest result for each target
+  // Get latest valid result (cheapestPrice > 0) for each target
   const latestByTarget: Record<string, { price: number; date: string; changePct?: number } | null> = {};
   for (const t of targets) {
-    const results = await getFlightResults(t.id, 2);
-    if (results.length > 0) {
-      latestByTarget[t.id] = {
-        price: results[0].cheapestPrice,
-        date: results[0].scrapeDate,
-        changePct: results[0].changePct,
-      };
-    } else {
-      latestByTarget[t.id] = null;
-    }
+    const results = await getFlightResults(t.id, 5);
+    const valid = results.find((r) => r.cheapestPrice > 0);
+    latestByTarget[t.id] = valid
+      ? { price: valid.cheapestPrice, date: valid.scrapeDate, changePct: valid.changePct }
+      : null;
   }
 
   return (
