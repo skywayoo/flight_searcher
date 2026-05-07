@@ -14,7 +14,7 @@ async function getBrowser(): Promise<Browser> {
     const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.VERCEL;
     const { chromium } = await import('playwright-core');
     if (isLambda) {
-      const chromiumPkg = await import('@sparticuz/chromium');
+      const chromiumPkg = await import('@sparticuz/chromium-min');
       const chromiumDefault = chromiumPkg.default;
       const executablePath = await chromiumDefault.executablePath(REMOTE_CHROMIUM_TAR);
       return await chromium.launch({

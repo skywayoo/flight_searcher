@@ -34,7 +34,7 @@ export async function GET(req: Request) {
     log.push(`import playwright-core: ${Date.now() - t1}ms`);
 
     const t2 = Date.now();
-    const chromiumPkg = await import('@sparticuz/chromium');
+    const chromiumPkg = await import('@sparticuz/chromium-min');
     log.push(`import @sparticuz/chromium: ${Date.now() - t2}ms`);
 
     const t3 = Date.now();
