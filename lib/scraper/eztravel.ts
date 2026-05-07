@@ -208,29 +208,46 @@ function generateMultiCityStub(segments: FlightSegmentSpec[], cabin: 'economy' |
       const [y, m, d] = iso.split('-');
       return `${d}/${m}/${y}`;  // eztravel accepts plain DD/MM/YYYY
     };
+    // Map airport codes → city codes for broader eztravel matching
+    // (city code covers all airports in that city)
+    const cityMap: Record<string, string> = {
+      NRT: 'TYO', HND: 'TYO',     // Tokyo
+      KIX: 'OSA', ITM: 'OSA',     // Osaka
+      ICN: 'SEL', GMP: 'SEL',     // Seoul
+      PVG: 'SHA', SHA: 'SHA',     // Shanghai
+      JFK: 'NYC', EWR: 'NYC', LGA: 'NYC',  // New York
+    };
     const segParams = segments
       .map((s, i) => {
-        const from = s.from.toUpperCase();
-        const to = s.to.toUpperCase();
+        const fromAp = s.from.toUpperCase();
+        const toAp = s.to.toUpperCase();
+        const fromCity = cityMap[fromAp] ?? fromAp;
+        const toCity = cityMap[toAp] ?? toAp;
         const n = i + 1;
-        return `dcity${n}=${from}&acity${n}=${to}&date${n}=${encodeURIComponent(fmtEzDate(s.date))}&dport${n}=&aport${n}=`;
+        // dport/aport: leave empty for city codes; set when an airport-only code
+        const dport = fromCity !== fromAp ? '' : fromAp;
+        const aport = toCity !== toAp ? '' : toAp;
+        return `dcity${n}=${fromCity}&acity${n}=${toCity}&date${n}=${encodeURIComponent(fmtEzDate(s.date))}&dport${n}=${dport}&aport${n}=${aport}`;
       })
       .join('&');
     const firstFrom = segments[0].from.toUpperCase();
     const firstTo = segments[0].to.toUpperCase();
     const ezMulti = `https://flight.eztravel.com.tw/tickets-multicity-${firstFrom}-${firstTo}/?${segParams}&adults=1&children=0&infants=0&direct=false&cabintype=${cabin === 'business' ? 'business' : 'any'}`;
 
+    // Weekday days during NZ portion (segment 2 outbound to segment 3 inbound)
+    const tripStart = segments[1].date || segments[0].date;
+    const tripEnd = segments[2].date || segments[3].date;
     return {
       totalPrice: total,
       currency: 'TWD',
       outStation: segments[0].from,
-      outboundDate: segments[1].date || segments[0].date,
-      returnDate: segments[2].date,
+      outboundDate: tripStart,
+      returnDate: tripEnd,
       outboundAirport: segments[1].to,
       airline: `${airline} (${route})`,
       cabin,
       segments: [],
-      weekdayDays: 0,
+      weekdayDays: countWeekdays(tripStart, tripEnd),
       source: 'eztravel' as const,
       bookingUrl: ezMulti,
       bookingUrls: { eztravel: ezMulti },
