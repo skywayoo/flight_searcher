@@ -1,8 +1,8 @@
 import { FlightTarget, FlightResult, FlightCombination } from '@/types';
 
 const DB = {
-  TARGETS: process.env.NOTION_FLIGHT_TARGETS_DB_ID!,
-  RESULTS: process.env.NOTION_FLIGHT_RESULTS_DB_ID!,
+  TARGETS: process.env.NOTION_FLIGHT_TARGETS_DB_ID!.trim(),
+  RESULTS: process.env.NOTION_FLIGHT_RESULTS_DB_ID!.trim(),
 };
 
 const HEADERS = () => ({
