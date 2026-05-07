@@ -12,13 +12,9 @@ function fmtEzDate(iso: string): string {
   return encodeURIComponent(`${d}/${m}/${y}`);
 }
 
-const cityMap: Record<string, string> = {
-  NRT: 'TYO', HND: 'TYO',
-  KIX: 'OSA', ITM: 'OSA',
-  ICN: 'SEL', GMP: 'SEL',
-  PVG: 'SHA', SHA: 'SHA',
-  JFK: 'NYC', EWR: 'NYC', LGA: 'NYC',
-};
+// Use airport codes directly — eztravel accepts both airport and city codes;
+// airport codes give more precise results (per user preference).
+const cityMap: Record<string, string> = {};
 
 function buildMultiCityUrl(segments: FlightSegmentSpec[], cabin: 'economy' | 'business'): string {
   const segParams = segments
