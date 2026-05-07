@@ -4,6 +4,10 @@ import type { Browser, BrowserContext } from 'playwright-core';
 
 let browserPromise: Promise<Browser> | null = null;
 
+// Vercel strips @sparticuz/chromium's bin/ folder during build, so use the
+// remote tarball URL approach (chromium downloads at runtime to /tmp).
+const REMOTE_CHROMIUM_TAR = 'https://github.com/Sparticuz/chromium/releases/download/v148.0.0/chromium-v148.0.0-pack.x64.tar';
+
 async function getBrowser(): Promise<Browser> {
   if (browserPromise) return browserPromise;
   browserPromise = (async () => {
@@ -12,13 +16,13 @@ async function getBrowser(): Promise<Browser> {
     if (isLambda) {
       const chromiumPkg = await import('@sparticuz/chromium');
       const chromiumDefault = chromiumPkg.default;
+      const executablePath = await chromiumDefault.executablePath(REMOTE_CHROMIUM_TAR);
       return await chromium.launch({
         args: chromiumDefault.args,
-        executablePath: await chromiumDefault.executablePath(),
+        executablePath,
         headless: true,
       });
     } else {
-      // Local: use full playwright (must be installed as dev dep)
       try {
         const localPlaywright = await import('playwright');
         return await localPlaywright.chromium.launch({ headless: true });

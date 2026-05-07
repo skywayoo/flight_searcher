@@ -38,7 +38,7 @@ export async function GET(req: Request) {
     log.push(`import @sparticuz/chromium: ${Date.now() - t2}ms`);
 
     const t3 = Date.now();
-    const execPath = await chromiumPkg.default.executablePath();
+    const execPath = await chromiumPkg.default.executablePath('https://github.com/Sparticuz/chromium/releases/download/v148.0.0/chromium-v148.0.0-pack.x64.tar');
     log.push(`executablePath: ${execPath}, took ${Date.now() - t3}ms`);
 
     const t4 = Date.now();
