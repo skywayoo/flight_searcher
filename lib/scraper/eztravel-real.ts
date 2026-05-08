@@ -148,13 +148,13 @@ export async function scrapeMultiCityReal(
     d.setDate(d.getDate() + days);
     return d.toISOString().split('T')[0];
   }
-  // 3 date variations to balance coverage vs scan time.
-  // Each scan ~25s × 3 dates × 2 cabins = ~150s, fits Vercel 5min timeout
-  // with margin for retries & cold start.
+  // 3 date variations with per-segment offsets to test different trip lengths.
+  // Each scan ~25s × 3 dates × 2 cabins = ~150s.
+  // Format: { o1, o2 (out NZ), o3 (ret NZ), o4 (TPE-out) }
   const variations = [
-    { o1: 0, o2: 0, o4: 0 },        // base: 3/1, 4/1, 4/12, 4/30
-    { o1: 1, o2: -2, o4: -9 },      // user's $43k example: 3/2, 3/30, 4/10, 4/21
-    { o1: -3, o2: 4, o4: 1 },       // 2/26, 4/5, 4/15, 5/1
+    { o1: 0,  o2: 0,  o3: 0,  o4: 0  },   // base: 3/1, 4/1, 4/12, 4/30 (12d NZ)
+    { o1: 1,  o2: -2, o3: 3,  o4: -9 },   // user $43k: 3/2, 3/30, 4/15, 4/21 (16d NZ)
+    { o1: -3, o2: 4,  o3: 4,  o4: 1  },   // 2/26, 4/5, 4/16, 5/1 (12d NZ)
   ];
 
   let prices: AirlinePrice[] = [];
@@ -166,7 +166,7 @@ export async function scrapeMultiCityReal(
     const tried = [
       { ...segments[0], date: shiftDate(segments[0].date, v.o1) },
       { ...segments[1], date: shiftDate(segments[1].date, v.o2) },
-      { ...segments[2], date: shiftDate(segments[2].date, v.o2) },
+      { ...segments[2], date: shiftDate(segments[2].date, v.o3) },
       { ...segments[3], date: shiftDate(segments[3].date, v.o4) },
     ];
     const url = buildMultiCityUrl(tried, cabin);
