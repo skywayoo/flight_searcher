@@ -148,13 +148,13 @@ export async function scrapeMultiCityReal(
     d.setDate(d.getDate() + days);
     return d.toISOString().split('T')[0];
   }
-  // Wider date net to catch cheaper combos (5 variations to fit Vercel timeout)
+  // 3 date variations to balance coverage vs scan time.
+  // Each scan ~25s × 3 dates × 2 cabins = ~150s, fits Vercel 5min timeout
+  // with margin for retries & cold start.
   const variations = [
     { o1: 0, o2: 0, o4: 0 },        // base: 3/1, 4/1, 4/12, 4/30
-    { o1: -3, o2: -3, o4: -1 },     // 2/26, 3/29, 4/9, 4/29
-    { o1: 1, o2: 4, o4: 1 },        // 3/2, 4/5, 4/15, 5/1
-    { o1: 1, o2: -2, o4: -9 },      // 3/2, 3/30, 4/10, 4/21 (matches user's $43k example)
-    { o1: 2, o2: 7, o4: 3 },        // 3/3, 4/8, 4/19, 5/3
+    { o1: 1, o2: -2, o4: -9 },      // user's $43k example: 3/2, 3/30, 4/10, 4/21
+    { o1: -3, o2: 4, o4: 1 },       // 2/26, 4/5, 4/15, 5/1
   ];
 
   let prices: AirlinePrice[] = [];
