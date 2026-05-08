@@ -75,12 +75,12 @@ async function scrapePricesFromUrl(url: string, debug?: ScrapeDebug[]): Promise<
   const page = await handle.context.newPage();
   try {
     debug?.push({ step: 'load homepage' });
-    await page.goto('https://flight.eztravel.com.tw/', { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.waitForTimeout(6000);
+    await page.goto('https://flight.eztravel.com.tw/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(4000);
 
     debug?.push({ step: 'navigate to result url' });
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.waitForTimeout(20000);
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(15000);
 
     const bodyText = await page.evaluate(() => document.body.innerText);
     debug?.push({
@@ -148,10 +148,13 @@ export async function scrapeMultiCityReal(
     d.setDate(d.getDate() + days);
     return d.toISOString().split('T')[0];
   }
+  // Wider date net to catch cheaper combos (5 variations to fit Vercel timeout)
   const variations = [
-    { o1: 0, o2: 0, o4: 0 },        // base dates
-    { o1: -3, o2: -3, o4: -1 },     // earlier (228 fri, NZ earlier, seg4 Thu)
-    { o1: 1, o2: 4, o4: 1 },        // later (228 mon shifted, NZ later, seg4 Sat)
+    { o1: 0, o2: 0, o4: 0 },        // base: 3/1, 4/1, 4/12, 4/30
+    { o1: -3, o2: -3, o4: -1 },     // 2/26, 3/29, 4/9, 4/29
+    { o1: 1, o2: 4, o4: 1 },        // 3/2, 4/5, 4/15, 5/1
+    { o1: 1, o2: -2, o4: -9 },      // 3/2, 3/30, 4/10, 4/21 (matches user's $43k example)
+    { o1: 2, o2: 7, o4: 3 },        // 3/3, 4/8, 4/19, 5/3
   ];
 
   let prices: AirlinePrice[] = [];
