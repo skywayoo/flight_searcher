@@ -208,6 +208,30 @@ function chunkText(s: string, size = 1900): { text: { content: string } }[] {
   return out.slice(0, 100);
 }
 
+/**
+ * Fetch all results sorted by ScrapeDate desc, then build a map of
+ * targetId → latest valid (cheapestPrice > 0) entry. ONE paginated query
+ * total (instead of N+1 per target).
+ */
+export async function getAllResultsLatest(): Promise<Record<string, { price: number; date: string; changePct?: number }>> {
+  const r = await queryDB(DB.RESULTS, {
+    sorts: [{ property: 'ScrapeDate', direction: 'descending' }],
+  });
+  const out: Record<string, { price: number; date: string; changePct?: number }> = {};
+  for (const p of r.results) {
+    const tid = getRich(p, 'TargetId');
+    if (!tid || out[tid]) continue;
+    const cp = getNum(p, 'CheapestPrice');
+    if (cp <= 0) continue;
+    out[tid] = {
+      price: cp,
+      date: getDate(p, 'ScrapeDate'),
+      changePct: getNum(p, 'ChangePct') || undefined,
+    };
+  }
+  return out;
+}
+
 export async function createFlightResult(r: Omit<FlightResult, 'id'>): Promise<string> {
   const props: Record<string, unknown> = {
     Name: { title: [{ text: { content: `${r.targetId.slice(0, 8)} ${r.scrapeDate}` } }] },
