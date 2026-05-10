@@ -4,8 +4,8 @@
 // Usage:
 //   node scripts/local-scrape.mjs --input tasks.jsonl --concurrency 4 --output results.jsonl
 //
-// Each input line: {"out1":"BKK","out4":"BKK","variation":0,"cabin":"economy","segments":[...]}
-// Each output line: {"out1":..., "out4":..., "variation":..., "cabin":..., "ok":true, "prices":[...], "url":"...", "durationMs":12345}
+// Each input line includes out1/out4/nz/seg4 metadata plus segments.
+// Each output line preserves that metadata and adds scrape result fields.
 
 import { chromium } from 'playwright-core';
 import { readFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
@@ -146,6 +146,8 @@ async function main() {
         const result = await scrapeOne(browser, task.segments, task.cabin);
         const out = {
           out1: task.out1, out4: task.out4,
+          nz_out: task.nz_out, nz_in: task.nz_in,
+          seg4_airport: task.seg4_airport, seg4_date: task.seg4_date,
           variation: task.variation, cabin: task.cabin,
           segments: task.segments,
           ...result,
@@ -154,6 +156,8 @@ async function main() {
       } catch (e) {
         appendFileSync(output, JSON.stringify({
           out1: task.out1, out4: task.out4,
+          nz_out: task.nz_out, nz_in: task.nz_in,
+          seg4_airport: task.seg4_airport, seg4_date: task.seg4_date,
           variation: task.variation, cabin: task.cabin,
           segments: task.segments,
           ok: false, error: String(e).slice(0, 200),
