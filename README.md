@@ -48,4 +48,5 @@ python3 scripts/run-local-batch.py
 - 完整掃描結束後的總表通知由 `scripts/send-price-report.mjs` 負責。
 
 ## Cron
-目前部署環境可透過 cron 掃描 active 目標；本機批次掃描則使用上面的腳本流程。
+Vercel 已停用定時 cron，不再每天自動掃描 active 目標。
+目前 Vercel 只負責頁面顯示與手動/API 觸發功能；需要批次掃描時，改用本機腳本流程。
