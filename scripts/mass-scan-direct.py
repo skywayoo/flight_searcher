@@ -26,25 +26,12 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import product
+from scan_config import OUTSTATIONS, VARIATIONS, get_budget_caps
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(ROOT, "data", "flight-results.sqlite")
 
-OUTSTATIONS = [
-    "BKK", "CNX", "CTS", "DMK", "FUK", "GMP", "HIJ", "HKG", "ICN", "ISG",
-    "KMJ", "KOJ", "OKA", "PUS", "SDJ", "SHI",
-    "HKD", "NGO", "UKB", "MFM", "DPS",  # new
-]
-
-# Date variations: (o1, o2, o3, o4) day offsets from base 3/1, 4/1, 4/12, 4/30
-VARIATIONS = [
-    (0, 0, 0, 0),     # base: 3/1, 4/1, 4/12, 4/30 (12d NZ)
-    (1, -2, 3, -9),   # user $43k: 3/2, 3/30, 4/15, 4/21 (16d NZ)
-    (-3, 4, 4, 1),    # 2/26, 4/5, 4/16, 5/1 (12d NZ)
-]
 CABINS = ["economy", "business"]
-ECON_CAP = 50000
-BIZ_CAP = 80000
 
 
 def load_env():
@@ -92,6 +79,27 @@ def init_db():
             duration_ms INTEGER,
             scraped_at TEXT,
             error TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS skipped_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            out1 TEXT,
+            out4 TEXT,
+            nz TEXT,
+            seg4_airport TEXT,
+            variation_idx INTEGER,
+            seg1_date TEXT,
+            seg2_date TEXT,
+            seg3_date TEXT,
+            seg4_date TEXT,
+            cabin TEXT,
+            cheapest_price INTEGER,
+            booking_url TEXT,
+            duration_ms INTEGER,
+            scraped_at TEXT,
+            reason TEXT,
+            UNIQUE(out1, out4, nz, variation_idx, cabin)
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pair ON scrape_results(out1, out4, cabin)")
@@ -149,6 +157,7 @@ def main():
 
     env = load_env()
     conn = init_db()
+    econ_cap, biz_cap = get_budget_caps(env)
 
     cabins = args.cabins.split(",")
     variations = VARIATIONS[: args.variations]
@@ -158,6 +167,10 @@ def main():
         "SELECT out1, out4, variation_idx, cabin FROM scrape_results"
     )
     done_set = set(cur.fetchall())
+    cur = conn.execute(
+        "SELECT out1, out4, variation_idx, cabin FROM skipped_results"
+    )
+    done_set.update(cur.fetchall())
     if done_set:
         print(f"Resume: {len(done_set)} scrapes already in DB, skipping those")
 
@@ -234,6 +247,27 @@ def main():
             prices = res.get("prices", [])
             cheapest = prices[0]["price"] if prices else 0
             url = res.get("url", "")
+            cap = econ_cap if cabin == "economy" else biz_cap
+
+            if cheapest and cheapest > cap:
+                conn.execute("""
+                    INSERT INTO skipped_results
+                    (out1,out4,nz,seg4_airport,variation_idx,seg1_date,seg2_date,seg3_date,seg4_date,
+                     cabin,cheapest_price,booking_url,duration_ms,scraped_at,reason)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(out1, out4, nz, variation_idx, cabin)
+                    DO UPDATE SET
+                      cheapest_price=excluded.cheapest_price,
+                      booking_url=excluded.booking_url,
+                      duration_ms=excluded.duration_ms,
+                      scraped_at=excluded.scraped_at,
+                      reason=excluded.reason
+                """, (out1, out4, nz, seg4_airport, vi,
+                      segments[0]["date"], segments[1]["date"], segments[2]["date"], segments[3]["date"],
+                      cabin, cheapest, url, dur,
+                      time.strftime("%Y-%m-%dT%H:%M:%S"), f"over_budget>{cap}"))
+                conn.commit()
+                continue
 
             conn.execute("""
                 INSERT INTO scrape_results
@@ -253,7 +287,6 @@ def main():
                 prev_best = best_per_pair.get(key, 10**9)
                 if cheapest < prev_best:
                     best_per_pair[key] = cheapest
-                cap = ECON_CAP if cabin == "economy" else BIZ_CAP
                 if cheapest <= cap and cheapest < prev_best:
                     if cabin == "economy":
                         hits_econ.append((out1, out4, vi, cheapest, url))

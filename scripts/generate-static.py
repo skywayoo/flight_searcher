@@ -2,11 +2,11 @@
 """Generate a static HTML report from data/flight-results.sqlite.
 
 Outputs:
-  public-static/index.html
-  public-static/results.json (full data, in case user wants raw)
+  docs/index.html
+  docs/results.json (full data, in case user wants raw)
 
-Drops the Next.js app for viewing; the static folder can be deployed to Vercel
-as a pure CDN-served site (no functions, no Active CPU).
+GitHub Pages serves /docs on main; that's the public site at
+https://skywayoo.github.io/flight_searcher/ (no functions, no Active CPU).
 """
 import json
 import os
@@ -15,7 +15,7 @@ from datetime import datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB = os.path.join(ROOT, "data", "flight-results.sqlite")
-OUT_DIR = os.path.join(ROOT, "public-static")
+OUT_DIR = os.path.join(ROOT, "docs")
 
 
 HTML = """<!doctype html>
