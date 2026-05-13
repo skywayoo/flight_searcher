@@ -40,17 +40,16 @@ async function scrapeOne(browser, segments, cabin) {
   const t0 = Date.now();
   try {
     await page.goto('https://flight.eztravel.com.tw/', { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(1500);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.waitForTimeout(15000);
 
-    let bodyText = await page.evaluate(() => document.body.innerText);
-    if (!bodyText.includes('TWD') && !bodyText.includes('沒有符合的結果')) {
-      for (let i = 0; i < 5; i++) {
-        await page.waitForTimeout(3000);
-        bodyText = await page.evaluate(() => document.body.innerText);
-        if (bodyText.includes('TWD') || bodyText.includes('沒有符合的結果')) break;
-      }
+    // Adaptive wait: poll every 300ms, bail at 5s
+    let bodyText = '';
+    const startWait = Date.now();
+    while (Date.now() - startWait < 5000) {
+      bodyText = await page.evaluate(() => document.body.innerText);
+      if (bodyText.includes('TWD') || bodyText.includes('沒有符合的結果')) break;
+      await page.waitForTimeout(300);
     }
     if (bodyText.includes('沒有符合的結果')) {
       return { ok: true, prices: [], url, durationMs: Date.now() - t0 };

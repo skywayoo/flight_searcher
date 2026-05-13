@@ -76,21 +76,20 @@ async function scrapePricesFromUrl(url: string, debug?: ScrapeDebug[]): Promise<
   try {
     debug?.push({ step: 'load homepage' });
     await page.goto('https://flight.eztravel.com.tw/', { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.waitForTimeout(4000);
+    await page.waitForTimeout(1500);
 
     debug?.push({ step: 'navigate to result url' });
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.waitForTimeout(15000);
 
-    let bodyText = await page.evaluate(() => document.body.innerText);
-    // If results aren't rendered yet (no "TWD" string and no "no results" message),
-    // give the SPA up to 15 more seconds before declaring empty.
-    if (!bodyText.includes('TWD') && !bodyText.includes('沒有符合的結果')) {
-      for (let i = 0; i < 5; i++) {
-        await page.waitForTimeout(3000);
-        bodyText = await page.evaluate(() => document.body.innerText);
-        if (bodyText.includes('TWD') || bodyText.includes('沒有符合的結果')) break;
-      }
+    // Adaptive wait: poll every 300ms for either TWD prices or "no results"
+    // marker. Bail at 5s — pages that haven't rendered by then likely won't.
+    let bodyText = '';
+    const start = Date.now();
+    const maxWait = 5000;
+    while (Date.now() - start < maxWait) {
+      bodyText = await page.evaluate(() => document.body.innerText);
+      if (bodyText.includes('TWD') || bodyText.includes('沒有符合的結果')) break;
+      await page.waitForTimeout(300);
     }
     debug?.push({
       step: 'after wait',
