@@ -45,12 +45,39 @@ export async function scrapeTarget(target: FlightTarget): Promise<FlightCombinat
         { from: home, to: outStation, date: iso(date4) },
       ];
     }
-    for (const cabin of cabins) {
-      const results = USE_REAL
-        ? await scrapeMultiCityReal(segments, cabin)
-        : await scrapeMultiCity(segments, cabin);
-      allResults.push(...results);
-      await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
+    // Expand multi-airport segments (comma-separated from/to) into cartesian product.
+    // Each entry in `segments` may carry comma-separated codes like "HKG,BKK"; we
+    // generate one scrape per concrete (from,to,from,to...) combination.
+    const expand = (s: string) => (s || '').split(',').map((c) => c.trim().toUpperCase()).filter(Boolean);
+    type Combo = typeof segments;
+    const combos: Combo[] = [];
+    const rec = (i: number, acc: Combo) => {
+      if (i === segments.length) { combos.push(acc.slice()); return; }
+      const s = segments[i];
+      const fs = expand(s.from);
+      const ts = expand(s.to);
+      const fromList = fs.length ? fs : [''];
+      const toList = ts.length ? ts : [''];
+      for (const f of fromList) for (const t of toList) {
+        acc.push({ from: f, to: t, date: s.date, dateEnd: s.dateEnd });
+        rec(i + 1, acc);
+        acc.pop();
+      }
+    };
+    rec(0, []);
+    console.log(`[scrape] multi_city_4: ${combos.length} combos to scrape`);
+    for (const combo of combos) {
+      for (const cabin of cabins) {
+        try {
+          const results = USE_REAL
+            ? await scrapeMultiCityReal(combo, cabin)
+            : await scrapeMultiCity(combo, cabin);
+          allResults.push(...results);
+        } catch (e) {
+          console.error('multi-city combo failed', combo.map((s) => `${s.from}→${s.to}`).join(','), e);
+        }
+        await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
+      }
     }
   } else {
     // round_trip / one_way: iterate region's airports
@@ -101,9 +128,10 @@ export async function scrapeTarget(target: FlightTarget): Promise<FlightCombinat
   }
 
   // Apply budget caps separately per cabin.
-  // budgetCap = economy cap; business uses BUSINESS_BUDGET_CAP env (default 70000).
-  const businessCap = parseInt(process.env.BUSINESS_BUDGET_CAP ?? '70000', 10);
-  const econCap = target.budgetCap ?? Infinity;
+  // Priority: target.budgetCapEcon/Business > legacy target.budgetCap > BUSINESS_BUDGET_CAP env
+  const businessCap = target.budgetCapBusiness
+    ?? parseInt(process.env.BUSINESS_BUDGET_CAP ?? '70000', 10);
+  const econCap = target.budgetCapEcon ?? target.budgetCap ?? Infinity;
   const filtered = allResults.filter((r) =>
     r.cabin === 'business' ? r.totalPrice <= businessCap : r.totalPrice <= econCap
   );

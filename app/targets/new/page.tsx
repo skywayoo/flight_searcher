@@ -1,25 +1,134 @@
 'use client';
-import { useState } from 'react';
+import { useState, KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { REGIONS, REGION_KEYS, DEPARTURE_AIRPORTS, OUT_STATIONS } from '@/lib/regions';
 
 type TripType = 'round_trip' | 'one_way' | 'multi_city_4';
-type Segment = { from: string; to: string; date: string; dateEnd: string };
+type Segment = { from: string[]; to: string[]; date: string; dateEnd: string };
 
-const COMMON_AIRPORTS_FOR_PICKER = [
-  // TW
-  'TPE','KHH','RMQ','TSA',
-  // Outstation hubs
-  'HKG','BKK','ICN','PUS','KUL','SIN','MNL','NRT','HND','OKA',
-  // Long-haul popular
-  'NRT','HND','KIX','FUK','CTS','LAX','SFO','SEA','JFK','LHR','CDG','SYD','MEL','AKL','CHC','ZQN',
-];
 const ALL_AIRPORTS = [...new Set([
   ...DEPARTURE_AIRPORTS.map((a) => a.code),
   ...OUT_STATIONS.map((a) => a.code),
   ...Object.values(REGIONS).flatMap((r) => r.airports.map((a) => a.code)),
 ])];
+
+const SEGMENT_PRESETS: Record<number, { label: string; codes: string[] }[]> = {
+  0: [
+    { label: '外站樞紐', codes: ['HKG', 'BKK', 'ICN', 'PUS', 'KUL', 'SIN', 'MNL'] },
+    { label: '日本', codes: ['NRT', 'HND', 'KIX', 'FUK', 'CTS', 'NGO', 'OKA'] },
+  ],
+  1: [
+    { label: '台灣轉機', codes: ['TPE', 'TSA'] },
+    { label: '紐西蘭', codes: ['AKL', 'CHC', 'ZQN', 'WLG'] },
+    { label: '澳洲', codes: ['SYD', 'MEL', 'BNE', 'PER'] },
+  ],
+  2: [
+    { label: '紐西蘭', codes: ['AKL', 'CHC', 'ZQN', 'WLG'] },
+    { label: '澳洲', codes: ['SYD', 'MEL', 'BNE', 'PER'] },
+    { label: '台灣', codes: ['TPE', 'TSA'] },
+  ],
+  3: [
+    { label: '台灣', codes: ['TPE', 'TSA'] },
+    { label: '外站樞紐', codes: ['HKG', 'BKK', 'ICN', 'PUS', 'KUL', 'SIN'] },
+    { label: '日本', codes: ['NRT', 'HND', 'KIX', 'FUK', 'CTS', 'NGO', 'OKA'] },
+  ],
+};
+
+function MultiAirportInput({
+  value,
+  onChange,
+  presets = [],
+  placeholder = '輸入機場代碼 (Enter 加入)',
+}: {
+  value: string[];
+  onChange: (v: string[]) => void;
+  presets?: { label: string; codes: string[] }[];
+  placeholder?: string;
+}) {
+  const [input, setInput] = useState('');
+  const set = new Set(value);
+
+  const add = (codeRaw: string) => {
+    const code = codeRaw.trim().toUpperCase();
+    if (!code) return;
+    if (set.has(code)) return;
+    onChange([...value, code]);
+  };
+  const remove = (code: string) => onChange(value.filter((c) => c !== code));
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+      e.preventDefault();
+      add(input);
+      setInput('');
+    } else if (e.key === 'Backspace' && input === '' && value.length > 0) {
+      remove(value[value.length - 1]);
+    }
+  };
+
+  const toggleGroup = (codes: string[]) => {
+    const allIn = codes.every((c) => set.has(c));
+    if (allIn) {
+      onChange(value.filter((c) => !codes.includes(c)));
+    } else {
+      const merged = [...value];
+      for (const c of codes) if (!set.has(c)) merged.push(c);
+      onChange(merged);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1 min-h-[28px] mb-1">
+        {value.map((c) => (
+          <span
+            key={c}
+            className="inline-flex items-center text-xs bg-blue-600 text-white rounded px-1.5 py-0.5"
+          >
+            <span className="font-mono font-bold">{c}</span>
+            <button
+              type="button"
+              onClick={() => remove(c)}
+              className="ml-1 text-white/80 hover:text-white"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+      <input
+        list="all-airports"
+        value={input}
+        onChange={(e) => setInput(e.target.value.toUpperCase())}
+        onKeyDown={onKeyDown}
+        onBlur={() => { if (input) { add(input); setInput(''); } }}
+        placeholder={placeholder}
+        className="w-full rounded-lg border border-gray-700 bg-gray-950 px-2.5 py-1.5 text-sm text-white"
+      />
+      {presets.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1.5">
+          {presets.map((g) => {
+            const allIn = g.codes.every((c) => set.has(c));
+            return (
+              <button
+                key={g.label}
+                type="button"
+                onClick={() => toggleGroup(g.codes)}
+                className={`text-[10px] px-1.5 py-0.5 rounded transition ${
+                  allIn ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+                title={g.codes.join(', ')}
+              >
+                {g.label} ({g.codes.length})
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function NewTargetPage() {
   const router = useRouter();
@@ -36,16 +145,17 @@ export default function NewTargetPage() {
     outboundEnd: '',
     tripLengthMin: 5,
     tripLengthMax: 10,
-    budgetCap: 0,
+    budgetCapEcon: 0,
+    budgetCapBusiness: 0,
     includeBusiness: false,
     notifyDropPct: 5,
   });
 
   const [segments, setSegments] = useState<Segment[]>([
-    { from: 'HKG', to: 'TPE', date: '', dateEnd: '' },
-    { from: 'TPE', to: '', date: '', dateEnd: '' },
-    { from: '', to: 'TPE', date: '', dateEnd: '' },
-    { from: 'TPE', to: 'HKG', date: '', dateEnd: '' },
+    { from: ['HKG'], to: ['TPE'], date: '', dateEnd: '' },
+    { from: ['TPE'], to: [], date: '', dateEnd: '' },
+    { from: [], to: ['TPE'], date: '', dateEnd: '' },
+    { from: ['TPE'], to: ['HKG'], date: '', dateEnd: '' },
   ]);
 
   const regionAirports = REGIONS[form.region]?.airports || [];
@@ -65,23 +175,27 @@ export default function NewTargetPage() {
         departureAirport: form.departureAirport,
         region: form.region,
         destinationAirports: form.destinationAirports,
-        budgetCap: form.budgetCap || undefined,
+        budgetCapEcon: form.budgetCapEcon || undefined,
+        budgetCapBusiness: form.includeBusiness ? (form.budgetCapBusiness || undefined) : undefined,
+        budgetCap: form.budgetCapEcon || undefined, // legacy fallback
         includeBusiness: form.includeBusiness,
         notifyDropPct: form.notifyDropPct,
         status: 'active',
       };
       if (isMulti) {
-        // Validate segments
         for (let i = 0; i < 4; i++) {
           const s = segments[i];
-          if (!s.from || !s.to || !s.date) {
-            throw new Error(`第 ${i + 1} 段請填完起點、終點、日期`);
+          if (s.from.length === 0 || s.to.length === 0 || !s.date) {
+            throw new Error(`第 ${i + 1} 段請選起點、終點、填日期`);
           }
         }
+        // Serialize as comma-separated strings so downstream FlightSegmentSpec stays compatible
         body.segments = segments.map((s) => ({
-          from: s.from, to: s.to, date: s.date, dateEnd: s.dateEnd || undefined,
+          from: s.from.join(','),
+          to: s.to.join(','),
+          date: s.date,
+          dateEnd: s.dateEnd || undefined,
         }));
-        // Use first/last segment dates as outbound start/end for sorting purposes
         body.outboundStart = segments[0].date;
         body.outboundEnd = segments[3].dateEnd || segments[3].date;
       } else {
@@ -109,6 +223,9 @@ export default function NewTargetPage() {
 
   return (
     <div>
+      <datalist id="all-airports">
+        {ALL_AIRPORTS.map((c) => <option key={c} value={c} />)}
+      </datalist>
       <header className="sticky top-0 z-10 bg-gray-950/95 backdrop-blur border-b border-gray-800">
         <div className="flex items-center justify-between px-4 py-3">
           <Link href="/" className="text-sm text-gray-400">← 返回</Link>
@@ -261,38 +378,27 @@ export default function NewTargetPage() {
         {isMulti && (
           <>
             <div className="rounded-lg bg-blue-900/20 border border-blue-900/40 p-3 text-xs text-blue-200">
-              💡 外站四段票：每段獨立填起點、終點、日期。範例：PUS→TPE / TPE→AKL / AKL→TPE / TPE→ICN。
-              「日期止」可空白（=當天），填了就是這段日期區間都掃。
+              💡 外站四段票：每段可多選機場（cartesian 展開掃描）。範例 seg1：選 HKG + BKK，seg2：選 AKL + CHC，會掃 HKG→TPE→AKL + HKG→TPE→CHC + BKK→TPE→AKL + BKK→TPE→CHC。
             </div>
             {segments.map((seg, i) => (
-              <div key={i} className="rounded-xl bg-gray-900 p-3 space-y-2">
+              <div key={i} className="rounded-xl bg-gray-900 p-3 space-y-3">
                 <p className="text-xs font-semibold text-gray-300">第 {i + 1} 段</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">起點</label>
-                    <input
-                      list={`airports-${i}-from`}
+                    <label className="block text-[10px] text-gray-500 mb-1">起點（可多選）</label>
+                    <MultiAirportInput
                       value={seg.from}
-                      onChange={(e) => updateSegment(i, { from: e.target.value.toUpperCase() })}
-                      placeholder="IATA 代碼"
-                      className="w-full rounded-lg border border-gray-700 bg-gray-950 px-2.5 py-1.5 text-sm text-white"
+                      onChange={(v) => updateSegment(i, { from: v })}
+                      presets={SEGMENT_PRESETS[i]}
                     />
-                    <datalist id={`airports-${i}-from`}>
-                      {ALL_AIRPORTS.map((c) => <option key={c} value={c} />)}
-                    </datalist>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-1">終點</label>
-                    <input
-                      list={`airports-${i}-to`}
+                    <label className="block text-[10px] text-gray-500 mb-1">終點（可多選）</label>
+                    <MultiAirportInput
                       value={seg.to}
-                      onChange={(e) => updateSegment(i, { to: e.target.value.toUpperCase() })}
-                      placeholder="IATA 代碼"
-                      className="w-full rounded-lg border border-gray-700 bg-gray-950 px-2.5 py-1.5 text-sm text-white"
+                      onChange={(v) => updateSegment(i, { to: v })}
+                      presets={SEGMENT_PRESETS[i]}
                     />
-                    <datalist id={`airports-${i}-to`}>
-                      {ALL_AIRPORTS.map((c) => <option key={c} value={c} />)}
-                    </datalist>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -320,27 +426,42 @@ export default function NewTargetPage() {
           </>
         )}
 
-        {/* Budget Cap */}
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">預算上限（TWD，0=不限）</label>
-          <input
-            type="number"
-            value={form.budgetCap}
-            onChange={(e) => setForm({ ...form, budgetCap: parseInt(e.target.value) || 0 })}
-            placeholder="例如 30000"
-            className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white"
-          />
-        </div>
+        {/* Budget Caps */}
+        <div className="space-y-2">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">經濟艙預算上限（TWD，0=不限）</label>
+            <input
+              type="number"
+              value={form.budgetCapEcon}
+              onChange={(e) => setForm({ ...form, budgetCapEcon: parseInt(e.target.value) || 0 })}
+              placeholder="例如 50000"
+              className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white"
+            />
+          </div>
 
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={form.includeBusiness}
-            onChange={(e) => setForm({ ...form, includeBusiness: e.target.checked })}
-            className="w-4 h-4 rounded border-gray-700 bg-gray-900"
-          />
-          <span className="text-sm text-gray-300">同時比較商務艙價格</span>
-        </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.includeBusiness}
+              onChange={(e) => setForm({ ...form, includeBusiness: e.target.checked })}
+              className="w-4 h-4 rounded border-gray-700 bg-gray-900"
+            />
+            <span className="text-sm text-gray-300">同時比較商務艙價格</span>
+          </label>
+
+          {form.includeBusiness && (
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">商務艙預算上限（TWD，0=不限）</label>
+              <input
+                type="number"
+                value={form.budgetCapBusiness}
+                onChange={(e) => setForm({ ...form, budgetCapBusiness: parseInt(e.target.value) || 0 })}
+                placeholder="例如 120000"
+                className="w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white"
+              />
+            </div>
+          )}
+        </div>
 
         <div>
           <label className="block text-xs text-gray-400 mb-1">跌價通知門檻（%）</label>

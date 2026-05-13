@@ -4,8 +4,8 @@ export type TripType = 'round_trip' | 'one_way' | 'multi_city_4';
 export type TargetStatus = 'active' | 'paused';
 
 export interface FlightSegmentSpec {
-  from: string;       // IATA
-  to: string;         // IATA  ('' = use destination region)
+  from: string;       // IATA — comma-separated list when multi-select (e.g. "HKG,BKK,SIN")
+  to: string;         // IATA — comma-separated list when multi-select ('' = use destination region)
   date: string;       // ISO date (specific) — start of small range
   dateEnd?: string;   // ISO date — end of range (search whole window)
 }
@@ -28,8 +28,12 @@ export interface FlightTarget {
   segments?: FlightSegmentSpec[];
   // For multi_city_4 (legacy): list of out-stations to try
   outStations?: string[];
-  // Optional budget cap (TWD)
+  // Optional budget cap (TWD) — legacy single-cap field, used as econ cap fallback
   budgetCap?: number;
+  // Economy budget cap (TWD); supersedes budgetCap when set
+  budgetCapEcon?: number;
+  // Business budget cap (TWD); only meaningful when includeBusiness is true
+  budgetCapBusiness?: number;
   // Also fetch business class for comparison
   includeBusiness?: boolean;
   // Notification thresholds

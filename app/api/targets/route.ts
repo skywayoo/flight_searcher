@@ -17,6 +17,8 @@ export async function POST(req: Request) {
       segments: body.segments,
       outStations: body.outStations,
       budgetCap: body.budgetCap,
+      budgetCapEcon: body.budgetCapEcon,
+      budgetCapBusiness: body.budgetCapBusiness,
       includeBusiness: body.includeBusiness,
       notifyDropPct: body.notifyDropPct,
       status: body.status || 'active',

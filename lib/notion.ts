@@ -116,6 +116,8 @@ function rowToTarget(p: Record<string, unknown>): FlightTarget {
     segments,
     outStations: outStations.length ? outStations : undefined,
     budgetCap: getNum(p, 'BudgetCap') || undefined,
+    budgetCapEcon: getNum(p, 'BudgetCapEcon') || undefined,
+    budgetCapBusiness: getNum(p, 'BudgetCapBusiness') || undefined,
     includeBusiness: getBool(p, 'IncludeBusiness'),
     notifyDropPct: getNum(p, 'NotifyDropPct') || undefined,
     status: (getSelect(p, 'Status') || 'active') as FlightTarget['status'],
@@ -141,6 +143,8 @@ export async function createFlightTarget(t: Omit<FlightTarget, 'id' | 'createdAt
   if (t.segments?.length) props.Segments = { rich_text: [{ text: { content: JSON.stringify(t.segments) } }] };
   if (t.outStations?.length) props.OutStations = { rich_text: [{ text: { content: JSON.stringify(t.outStations) } }] };
   if (t.budgetCap) props.BudgetCap = { number: t.budgetCap };
+  if (t.budgetCapEcon) props.BudgetCapEcon = { number: t.budgetCapEcon };
+  if (t.budgetCapBusiness) props.BudgetCapBusiness = { number: t.budgetCapBusiness };
   if (t.includeBusiness) props.IncludeBusiness = { checkbox: true };
   if (t.notifyDropPct) props.NotifyDropPct = { number: t.notifyDropPct };
   return createPage(DB.TARGETS, props);
@@ -154,6 +158,8 @@ export async function updateFlightTarget(id: string, data: Partial<FlightTarget>
   if (data.outboundStart) props.OutboundStart = { date: { start: data.outboundStart } };
   if (data.outboundEnd) props.OutboundEnd = { date: { start: data.outboundEnd } };
   if (data.budgetCap !== undefined) props.BudgetCap = { number: data.budgetCap };
+  if (data.budgetCapEcon !== undefined) props.BudgetCapEcon = { number: data.budgetCapEcon };
+  if (data.budgetCapBusiness !== undefined) props.BudgetCapBusiness = { number: data.budgetCapBusiness };
   await updatePage(id, { properties: props });
 }
 
