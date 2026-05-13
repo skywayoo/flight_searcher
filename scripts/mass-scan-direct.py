@@ -81,27 +81,9 @@ def init_db():
             error TEXT
         )
     """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS skipped_results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            out1 TEXT,
-            out4 TEXT,
-            nz TEXT,
-            seg4_airport TEXT,
-            variation_idx INTEGER,
-            seg1_date TEXT,
-            seg2_date TEXT,
-            seg3_date TEXT,
-            seg4_date TEXT,
-            cabin TEXT,
-            cheapest_price INTEGER,
-            booking_url TEXT,
-            duration_ms INTEGER,
-            scraped_at TEXT,
-            reason TEXT,
-            UNIQUE(out1, out4, nz, variation_idx, cabin)
-        )
-    """)
+    # Drop legacy over-budget cache — over-budget results no longer stored
+    conn.execute("DROP TABLE IF EXISTS skipped_results")
+    conn.execute("DROP TABLE IF EXISTS skipped_results_old")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_pair ON scrape_results(out1, out4, cabin)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_price ON scrape_results(cheapest_price)")
     conn.commit()
@@ -167,10 +149,6 @@ def main():
         "SELECT out1, out4, variation_idx, cabin FROM scrape_results"
     )
     done_set = set(cur.fetchall())
-    cur = conn.execute(
-        "SELECT out1, out4, variation_idx, cabin FROM skipped_results"
-    )
-    done_set.update(cur.fetchall())
     if done_set:
         print(f"Resume: {len(done_set)} scrapes already in DB, skipping those")
 
@@ -250,23 +228,7 @@ def main():
             cap = econ_cap if cabin == "economy" else biz_cap
 
             if cheapest and cheapest > cap:
-                conn.execute("""
-                    INSERT INTO skipped_results
-                    (out1,out4,nz,seg4_airport,variation_idx,seg1_date,seg2_date,seg3_date,seg4_date,
-                     cabin,cheapest_price,booking_url,duration_ms,scraped_at,reason)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    ON CONFLICT(out1, out4, nz, variation_idx, cabin)
-                    DO UPDATE SET
-                      cheapest_price=excluded.cheapest_price,
-                      booking_url=excluded.booking_url,
-                      duration_ms=excluded.duration_ms,
-                      scraped_at=excluded.scraped_at,
-                      reason=excluded.reason
-                """, (out1, out4, nz, seg4_airport, vi,
-                      segments[0]["date"], segments[1]["date"], segments[2]["date"], segments[3]["date"],
-                      cabin, cheapest, url, dur,
-                      time.strftime("%Y-%m-%dT%H:%M:%S"), f"over_budget>{cap}"))
-                conn.commit()
+                # Over budget: don't store at all (per user request 2026-05-14)
                 continue
 
             conn.execute("""

@@ -28,10 +28,6 @@ from scan_config import get_budget_caps
 
 DB_PATH = os.path.join(ROOT, "data", "flight-results.sqlite")
 
-SKIPPED_RESULTS_UNIQUE = (
-    "UNIQUE(out1, out4, nz, seg4_airport, variation_idx, seg4_date, cabin)"
-)
-
 
 # ============================================================
 # Notion sync
@@ -189,51 +185,10 @@ def telegram(env, text):
 # SQLite schema migration
 # ============================================================
 
-def ensure_skipped_results_table(conn):
-    create_sql = f"""
-    CREATE TABLE skipped_results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        out1 TEXT,
-        out4 TEXT,
-        nz TEXT,
-        seg4_airport TEXT,
-        variation_idx INTEGER,
-        seg1_date TEXT,
-        seg2_date TEXT,
-        seg3_date TEXT,
-        seg4_date TEXT,
-        cabin TEXT,
-        cheapest_price INTEGER,
-        booking_url TEXT,
-        duration_ms INTEGER,
-        scraped_at TEXT,
-        reason TEXT,
-        {SKIPPED_RESULTS_UNIQUE}
-    )
-    """
-    row = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='skipped_results'"
-    ).fetchone()
-
-    if row is None:
-        conn.execute(create_sql)
-        return
-    if SKIPPED_RESULTS_UNIQUE in (row[0] or ""):
-        return
-
-    conn.execute("ALTER TABLE skipped_results RENAME TO skipped_results_old")
-    conn.execute(create_sql)
-    conn.execute("""
-        INSERT OR REPLACE INTO skipped_results
-        (out1,out4,nz,seg4_airport,variation_idx,seg1_date,seg2_date,seg3_date,seg4_date,
-         cabin,cheapest_price,booking_url,duration_ms,scraped_at,reason)
-        SELECT
-            out1, out4, nz, COALESCE(seg4_airport, 'TPE'), variation_idx,
-            seg1_date, seg2_date, seg3_date, seg4_date,
-            cabin, cheapest_price, booking_url, duration_ms, scraped_at, reason
-        FROM skipped_results_old
-    """)
-    conn.execute("DROP TABLE skipped_results_old")
+def drop_skipped_results_tables(conn):
+    """Over-budget results aren't stored anymore; clean up any legacy tables."""
+    for tbl in ("skipped_results", "skipped_results_old"):
+        conn.execute(f"DROP TABLE IF EXISTS {tbl}")
 
 
 # ============================================================
@@ -254,7 +209,7 @@ def main():
 
     conn = sqlite3.connect(DB_PATH)
     try:
-        ensure_skipped_results_table(conn)
+        drop_skipped_results_tables(conn)
 
         # Existing lowest per (out1, out4, nz, cabin)
         cur = conn.execute("""
@@ -322,28 +277,9 @@ def main():
                     WHERE out1=? AND out4=? AND nz=? AND seg4_airport=?
                       AND variation_idx=? AND seg4_date=? AND cabin=?
                 """, (out1, out4, nz_label, seg4_airport, vi, seg4_date, cabin))
-                conn.execute("""
-                    DELETE FROM skipped_results
-                    WHERE out1=? AND out4=? AND nz=? AND seg4_airport=?
-                      AND variation_idx=? AND seg4_date=? AND cabin=?
-                """, (out1, out4, nz_label, seg4_airport, vi, seg4_date, cabin))
 
-                # === Over budget → skipped_results, no Notion sync ===
+                # === Over budget → drop entirely (no DB row) ===
                 if cheapest and cheapest > cap:
-                    conn.execute("""
-                        INSERT INTO skipped_results
-                        (out1,out4,nz,seg4_airport,variation_idx,
-                         seg1_date,seg2_date,seg3_date,seg4_date,
-                         cabin,cheapest_price,booking_url,duration_ms,scraped_at,reason)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """, (
-                        out1, out4, nz_label, seg4_airport, vi,
-                        segs[0]["date"], segs[1]["date"], segs[2]["date"], seg4_date,
-                        cabin, cheapest, url, dur,
-                        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                        f"over_budget>{cap}",
-                    ))
-                    inserted += 1
                     continue
 
                 # === Normal insert (success or empty result) ===

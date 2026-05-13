@@ -15,7 +15,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(ROOT, "data", "flight-results.sqlite")
 
 CABINS = ["economy", "business"]
-SKIPPED_RESULTS_UNIQUE = "UNIQUE(out1, out4, nz, seg4_airport, variation_idx, seg4_date, cabin)"
 
 
 def shift(iso, days):
@@ -46,66 +45,6 @@ def build_seg4_variants(var):
         yield option["airport"], seg4_date
 
 
-def ensure_skipped_results_table(conn):
-    create_sql = f"""
-        CREATE TABLE skipped_results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            out1 TEXT,
-            out4 TEXT,
-            nz TEXT,
-            seg4_airport TEXT,
-            variation_idx INTEGER,
-            seg1_date TEXT,
-            seg2_date TEXT,
-            seg3_date TEXT,
-            seg4_date TEXT,
-            cabin TEXT,
-            cheapest_price INTEGER,
-            booking_url TEXT,
-            duration_ms INTEGER,
-            scraped_at TEXT,
-            reason TEXT,
-            {SKIPPED_RESULTS_UNIQUE}
-        )
-    """
-    row = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='skipped_results'"
-    ).fetchone()
-    if row is None:
-        conn.execute(create_sql)
-        return
-    if SKIPPED_RESULTS_UNIQUE in (row[0] or ""):
-        return
-
-    conn.execute("ALTER TABLE skipped_results RENAME TO skipped_results_old")
-    conn.execute(create_sql)
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO skipped_results
-        (out1,out4,nz,seg4_airport,variation_idx,seg1_date,seg2_date,seg3_date,seg4_date,
-         cabin,cheapest_price,booking_url,duration_ms,scraped_at,reason)
-        SELECT
-            out1,
-            out4,
-            nz,
-            COALESCE(seg4_airport, 'TPE'),
-            variation_idx,
-            seg1_date,
-            seg2_date,
-            seg3_date,
-            seg4_date,
-            cabin,
-            cheapest_price,
-            booking_url,
-            duration_ms,
-            scraped_at,
-            reason
-        FROM skipped_results_old
-    """
-    )
-    conn.execute("DROP TABLE skipped_results_old")
-
-
 # NZ configs: (out_airport, in_airport, label_for_db)
 NZ_CONFIGS = [
     ("ZQN", "ZQN"),  # phase 1 default
@@ -119,7 +58,9 @@ def main():
     out = sys.argv[1] if len(sys.argv) > 1 else "/tmp/tasks.jsonl"
     nz_filter = sys.argv[2] if len(sys.argv) > 2 else "all"  # "all" or "ZQN-ZQN" etc.
     conn = sqlite3.connect(DB_PATH)
-    ensure_skipped_results_table(conn)
+    # Drop legacy over-budget cache — over-budget results no longer stored.
+    conn.execute("DROP TABLE IF EXISTS skipped_results")
+    conn.execute("DROP TABLE IF EXISTS skipped_results_old")
     # Skip already-done per (out1, out4, nz_out-nz_in, seg4_airport, variation, seg4_date, cabin)
     cur = conn.execute("""
         SELECT out1, out4, nz, COALESCE(seg4_airport, 'TPE'), variation_idx, seg4_date, cabin
@@ -127,11 +68,6 @@ def main():
         WHERE error IS NULL
     """)
     done = set(cur.fetchall())
-    cur = conn.execute("""
-        SELECT out1, out4, nz, COALESCE(seg4_airport, 'TPE'), variation_idx, seg4_date, cabin
-        FROM skipped_results
-    """)
-    done.update(cur.fetchall())
     print(f"skipping {len(done)} already-done", file=sys.stderr)
 
     if nz_filter == "all":
