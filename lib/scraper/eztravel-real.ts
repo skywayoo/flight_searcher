@@ -82,10 +82,10 @@ async function scrapePricesFromUrl(url: string, debug?: ScrapeDebug[]): Promise<
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
     // Adaptive wait: poll every 300ms for either TWD prices or "no results"
-    // marker. Bail at 5s — pages that haven't rendered by then likely won't.
+    // marker. Bail at 8s — gives cold-start scrapes time to render.
     let bodyText = '';
     const start = Date.now();
-    const maxWait = 5000;
+    const maxWait = 8000;
     while (Date.now() - start < maxWait) {
       bodyText = await page.evaluate(() => document.body.innerText);
       if (bodyText.includes('TWD') || bodyText.includes('沒有符合的結果')) break;

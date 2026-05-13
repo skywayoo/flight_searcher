@@ -43,10 +43,10 @@ async function scrapeOne(browser, segments, cabin) {
     await page.waitForTimeout(1500);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
-    // Adaptive wait: poll every 300ms, bail at 5s
+    // Adaptive wait: poll every 300ms, bail at 8s
     let bodyText = '';
     const startWait = Date.now();
-    while (Date.now() - startWait < 5000) {
+    while (Date.now() - startWait < 8000) {
       bodyText = await page.evaluate(() => document.body.innerText);
       if (bodyText.includes('TWD') || bodyText.includes('沒有符合的結果')) break;
       await page.waitForTimeout(300);
