@@ -1,427 +1,399 @@
 # Flight Searcher
 
-> 易遊網機票監控與比價工具
+> 易遊網多段機票價格監控與比價工具
 
-多段機票自動搜尋、預算過濾、價格監控、Telegram 通知。
+支援外站四段票（外站→TPE→NZ→NZ→TPE→外站）的 cartesian 機場 + 日期組合搜尋，預算過濾，命中時 Telegram 即時通知 + Notion 紀錄 + GitHub Pages 公開報告。
 
 ---
 
 ## 🎯 整體架構
 
 ```
-┌──────────────────── 🖥️  MacOS 本機(重活)───────────────────┐
-│                                                              │
-│  Cron(每天 / 每幾小時)                                       │
-│       │                                                      │
-│       ▼                                                      │
-│  run-local-batch.py(主控)                                   │
-│       │                                                      │
-│       ├──► [TG] 🟢 開始掃描                                    │
-│       │                                                      │
-│       ├──► build-tasks.py                                    │
-│       │      └── 從 Notion Targets DB 撈追蹤目標 ★            │
-│       │      └── 用 task_expander.py 展開所有組合              │
-│       │                                                      │
-│       ├──► local-scrape.mjs(Playwright 完整版)               │
-│       │      └── 第一段價 > 預算 → skip(剪枝)★              │
-│       │      └── 找到符合預算 → [TG] 💰 即時通知 ★            │
-│       │      └── 每 10% → [TG] 📊 進度(由 run-local 控)      │
-│       │                                                      │
-│       ├──► import-results.py                                 │
-│       │      ├── 全部結果寫 SQLite                            │
-│       │      └── 「符合預算」同步上 Notion Results DB         │
-│       │                                                      │
-│       └──► [TG] ✅ 完成總結                                    │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-                              ↑↓
-                       Notion API
-                              ↑↓
-┌──────────────────── 📋 Notion(資料中樞)────────────────────┐
-│                                                              │
-│  Targets DB(追蹤目標)                                       │
-│    ├ 名稱 / 預算 / 4-segment 設定                            │
-│    ├ Seg1 出發機場集合 + 日期集合                              │
-│    ├ Seg2 出發 / 抵達 + 日期集合                              │
-│    ├ Seg3 相對 Seg2 + N 天                                   │
-│    ├ Seg4 出發機場 / 抵達機場 / 日期集合                       │
-│    └ enabled, lastScanAt                                     │
-│                                                              │
-│  Results DB(符合預算的機票)                                  │
-│    ├ 每個 target + 組合,只保留最新一筆                       │
-│    ├ totalPrice, bookingUrl, 各段日期                         │
-│    └ 寫入時間                                                 │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-                              ↑↓
-                              │
-┌──────────────────── ☁️  Vercel(輕活)───────────────────────┐
-│                                                              │
-│  Next.js 16 UI                                               │
-│    ├ 顯示 Notion 裡的 Targets + Results                       │
-│    ├ 新增 / 編輯 Target(用 AirportPicker + DatePicker)      │
-│    ├ 「重新掃描」按鈕                                          │
-│    └ 價格變動圖表                                              │
-│                                                              │
-│  /api/targets/[id]/scan                                      │
-│    └── 用 chromium-min + playwright-core 跑單一 target        │
-│    └── 跌價達門檻 → [TG] 通知                                  │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
+┌────────────────── 🖥️  Mac 本機(全部重活)─────────────────┐
+│                                                           │
+│  scan-targets-direct.py  (orchestrator)                   │
+│     │                                                     │
+│     ├─► 1. 從 Notion 撈 active targets                    │
+│     ├─► 2. cartesian 展開每個 target → JSONL              │
+│     │                                                     │
+│     ├─► local-scrape.mjs(playwright-core + 本機 chromium) │
+│     │      ├── 每 worker 有自己 warm context (過 Incapsula)│
+│     │      ├── 跑 6 workers 平行,~5s/scrape                │
+│     │      └── 結果寫 JSONL                                │
+│     │                                                     │
+│     └─► 結束時:寫 Notion FlightResults + Telegram 總結    │
+│                                                           │
+│  watch-hits.py  (tailer, 邊跑邊看)                        │
+│     ├── 即時讀 JSONL,每筆新命中(在預算內):                │
+│     ├── 響鈴 Telegram(新最低價)                           │
+│     ├── 寫 Notion FlightResults                            │
+│     ├── 寫本機 SQLite scrape_results                       │
+│     └── (可選)定期重生 docs/ + push GH Pages              │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
+                              ↑↓ API
+                          Notion + Telegram
+                              ↑
+┌─────────── 📋 Notion(資料源 + 結果存放)─────────────────┐
+│                                                           │
+│  Flight Targets DB(使用者 / Next.js UI 編輯)              │
+│    ├ Name / TripType / DepartureAirport                   │
+│    ├ Segments (rich_text JSON, 4 段)                       │
+│    ├ BudgetCapEcon / BudgetCapBusiness                     │
+│    ├ IncludeBusiness (checkbox)                            │
+│    └ Status(active/paused)                                │
+│                                                           │
+│  Flight Results DB(掃描命中時寫入)                       │
+│    ├ Name / TargetId                                       │
+│    ├ ScrapeDate / CheapestPrice / Top5                     │
+│    └ Source(select: eztravel)                             │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
+                              ↑
+┌─────────── ☁️  Next.js Dev UI(本機 localhost:3000)─────┐
+│                                                           │
+│   /targets/new   新增監控目標                              │
+│      ├── 4-segment 多選機場(comma-separated)               │
+│      ├── 預算分艙等(econ / biz)                            │
+│      └── 寫 Notion Targets                                 │
+│                                                           │
+│   /                 首頁顯示所有 targets + latest results  │
+│                                                           │
+│   ⚠️ Vercel 部署目前因 team fair-use 被擋,只跑本機 dev   │
+└───────────────────────────────────────────────────────────┘
+                              ↑
+┌─────────── 🌍 GitHub Pages(公開、唯讀靜態報告)──────────┐
+│                                                           │
+│  https://skywayoo.github.io/flight_searcher/              │
+│    └── docs/index.html(從 SQLite 產生,scan 結束後推送) │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📐 設計原則
+## 🚀 快速使用（已建置好的環境）
 
-| 原則 | 說明 |
-|------|------|
-| **本機重活 / Vercel 輕活** | Playwright 完整爬蟲在本機,Vercel 只跑單筆 scan |
-| **Notion 是事實源** | Targets 在 Notion(使用者編輯),Results 也在 Notion(批次同步上去顯示) |
-| **SQLite 是歷史 / 分析倉** | 本機保留所有結果(含失敗 / 超預算),Notion 只放符合的 |
-| **預算只看上限** | 超過上限直接 skip,節省爬蟲時間 |
-| **Notion 不留歷史** | 同 target+組合,永遠覆蓋最新一筆 |
-| **Telegram 分層通知** | 本機批次發進度,Vercel scan 發跌價 |
+### 0. 確認本機環境
+
+```bash
+# Node 20+（playwright 需要）
+/opt/homebrew/opt/node@20/bin/node --version    # v20.x ✓
+
+# Python 3.9+
+python3 --version                                # 3.9+ ✓
+
+# qpdf（若會處理加密 PDF，optional）
+which qpdf || brew install qpdf
+```
+
+### 1. 啟動 Next.js Dev UI（建 target）
+
+```bash
+cd ~/claude_proj/flight_searcher
+PATH=/opt/homebrew/opt/node@20/bin:$PATH npm run dev
+# 開 http://localhost:3000/targets/new
+```
+
+在 UI 上填條件 → 寫進 Notion `Flight Targets` DB。
+
+### 2. 跑批次掃描
+
+```bash
+# orchestrator（一次跑所有 active targets）
+NODE20=/opt/homebrew/opt/node@20/bin/node python3 scripts/scan-targets-direct.py --concurrency 6
+```
+
+另開一個 terminal 跑 watcher（即時通知）：
+
+```bash
+python3 scripts/watch-hits.py
+```
+
+### 3. 觀察結果
+
+- **即時**：Telegram 收到「💰 經濟艙 42,511 / KIX→…→NRT (國泰航空)」
+- **掃完**：Notion `Flight Results` DB 看完整列表
+- **公開**：(可選 push 時) https://skywayoo.github.io/flight_searcher/
 
 ---
 
-## 📦 完整檔案結構
+## 📦 給別人用 / 重新部署的完整步驟
+
+### Step 1. 拿到 source
+
+```bash
+git clone https://github.com/skywayoo/flight_searcher
+cd flight_searcher
+npm install
+```
+
+### Step 2. 準備外部服務
+
+#### a. Telegram Bot
+
+1. 找 @BotFather 創 bot → 拿 `TELEGRAM_BOT_TOKEN`
+2. 跟你 bot 打一句話，去 `https://api.telegram.org/bot<TOKEN>/getUpdates` 找 `chat_id`
+
+#### b. Notion Integration
+
+1. https://www.notion.com/my-integrations → 「+ New integration」
+2. 拿 token (`NOTION_API_KEY`，`ntn_...` 開頭)
+3. 在 Notion 創兩個 database：
+
+##### Flight Targets DB
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| Name | Title | 目標名稱（必填） |
+| TripType | Select | `round_trip` / `one_way` / `multi_city_4` |
+| DepartureAirport | Rich text | 預設出發機場（round/one-way 用）|
+| Region | Select | 區域分類 |
+| DestinationAirports | Multi-select | 限定目的地機場（空=全掃）|
+| OutboundStart / OutboundEnd | Date | 出發日範圍 |
+| TripLengthMin / TripLengthMax | Number | 行程天數 |
+| Segments | Rich text | 4-segment JSON（multi_city_4 用） |
+| BudgetCap | Number | 通用預算（legacy） |
+| BudgetCapEcon | Number | 經濟艙上限 |
+| BudgetCapBusiness | Number | 商務艙上限 |
+| IncludeBusiness | Checkbox | 同時掃商務艙 |
+| NotifyDropPct | Number | 跌價通知門檻 % |
+| Status | Select | `active` / `paused` |
+| CreatedAt / LastScrapeAt | Date | 系統管理 |
+| OutStations | Rich text | (legacy, 可空) |
+
+##### Flight Results DB
+
+| 欄位 | 型別 |
+|------|------|
+| Name | Title |
+| TargetId | Rich text |
+| ScrapeDate | Date |
+| CheapestPrice | Number |
+| PrevCheapestPrice | Number |
+| ChangePct | Number |
+| Top5 | Rich text(JSON) |
+| ScrapeDurationMs | Number |
+| Source | Select(`eztravel`) |
+
+4. 在每個 DB 右上選單 → 「+ Connections」→ 加上剛剛 create 的 integration。
+
+#### c. (Optional) GitHub Pages
+
+1. Repo Settings → Pages → Source: `main` branch / `/docs` folder
+2. Push 後過 1-2 分鐘 https://&lt;user&gt;.github.io/flight_searcher/ 會生效
+
+### Step 3. 寫 `.env.local`
+
+```env
+NOTION_API_KEY=ntn_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+NOTION_FLIGHT_TARGETS_DB_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+NOTION_FLIGHT_RESULTS_DB_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+TELEGRAM_BOT_TOKEN=8000000000:AAxxxxxxxxxxxxxxxx
+TELEGRAM_CHAT_ID=123456789
+
+# 預算（可在 target 內 override）
+ECON_CAP=50000
+BUSINESS_BUDGET_CAP=80000
+
+# Scraper 模式
+SCRAPER_MODE=real
+```
+
+### Step 4. (可選) Vercel 部署
+
+如果要遠端 UI：
+
+```bash
+npm i -g vercel
+vercel login
+vercel link    # 連到專案
+vercel env pull .env.local
+vercel --prod
+```
+
+⚠️ **Vercel Hobby plan 限 4hr Active CPU/月**。爬蟲走本機（不是 Vercel function），所以 Vercel 端只負責 UI 顯示。如果 team 因 fair-use 被擋（如 2026-05 出現過），dev 仍可本機 `npm run dev` 跑。
+
+### Step 5. 跑第一次
+
+```bash
+# 啟動 dev UI（用來建 target）
+PATH=/opt/homebrew/opt/node@20/bin:$PATH npm run dev &
+
+# 開 http://localhost:3000/targets/new
+# 建一個測試 target，select tripType=multi_city_4
+
+# Orchestrator 掃描
+NODE20=/opt/homebrew/opt/node@20/bin/node python3 scripts/scan-targets-direct.py --concurrency 4
+
+# 另開 terminal 跑 watcher
+python3 scripts/watch-hits.py
+```
+
+---
+
+## 📐 設計重點
+
+| 項目 | 說明 |
+|------|------|
+| **全部跑在本機** | Playwright + chromium 在 Mac 跑，避開 Vercel CPU 配額 |
+| **Incapsula warm context** | eztravel 有 bot 防護，每個 worker 維持一個過 challenge 後的 context |
+| **Cartesian 多選機場** | seg1/seg4 可填 12+ 機場，自動展開所有組合 |
+| **分艙等預算** | econ / biz 各自上限，超過直接 skip 不寫 DB |
+| **Telegram 只報新低** | 同一 target 同一艙等，價格沒突破前一次最低不再響鈴 |
+| **GitHub Pages 是公開唯讀** | docs/ 從 SQLite 產生，scan 完成時推一次 |
+
+---
+
+## 📂 主要檔案
 
 ```
 flight_searcher/
-├── app/                          # Next.js App Router
-│   ├── api/
-│   │   ├── targets/[id]/scan/
-│   │   │   └── route.ts          # 單筆掃描,寫 Notion + 跌價通知
-│   │   └── ...
-│   ├── airport-picker-demo/      # 元件測試頁(可刪)
-│   │   └── page.tsx
-│   ├── date-picker-demo/         # 元件測試頁(可刪)
-│   │   └── page.tsx
-│   └── page.tsx
+├── app/                                  # Next.js UI
+│   ├── targets/new/page.tsx              # 建 target 表單(多選+分艙預算)
+│   ├── targets/[id]/page.tsx             # 單個 target 詳情
+│   ├── api/targets/route.ts              # POST 建 target
+│   ├── api/targets/[id]/scan/route.ts    # 單筆掃描(dev only)
+│   └── page.tsx                          # 首頁
 │
 ├── components/
-│   ├── AirportPicker.tsx         # 機場多選元件 (~60 亞太機場)
-│   └── DatePicker.tsx            # 日期多選元件
+│   ├── AirportPicker.tsx                 # 多選機場
+│   └── DatePicker.tsx                    # 多選日期
 │
 ├── lib/
-│   ├── airports.ts               # 機場資料 + 群組設定
-│   ├── notion.ts                 # Notion API wrapper(現有)
-│   ├── scraper.ts                # Vercel 端爬蟲(現有)
-│   ├── telegram.ts               # Vercel 端 Telegram(現有)
-│   └── ...
+│   ├── notion.ts                         # Notion API wrapper
+│   ├── airports.ts                       # 機場資料
+│   ├── regions.ts                        # 區域分類
+│   ├── scraper/                          # dev server 端 scraper
+│   │   ├── index.ts                      # scrapeTarget(cartesian)
+│   │   ├── eztravel-real.ts              # 真實 scrape 邏輯
+│   │   └── playwright-runtime.ts         # browser launch + warm
+│   └── telegram.ts                       # 通知
 │
-├── scripts/                      # 本機 Python / Node
-│   ├── run-local-batch.py        # 主控,排程跑這個
-│   ├── build-tasks.py            # 從 Notion 撈 target → 展開 JSONL ⚠️待改
-│   ├── local-scrape.mjs          # Playwright 爬蟲(本機)
-│   ├── import-results.py         # 寫 SQLite + 同步 Notion
-│   ├── send-price-report.mjs     # 批次完成總表
-│   ├── notify.py                 # Telegram 統一模組
-│   ├── airport_groups.py         # 機場群組(Python 端)
-│   ├── task_expander.py          # 組合展開邏輯
-│   └── scan_config.py            # 預算等共用設定
+├── scripts/                              # 本機 Python/Node
+│   ├── scan-targets-direct.py            # ⭐ orchestrator(主流程)
+│   ├── watch-hits.py                     # ⭐ tail + 即時通知 + 寫 SQLite/Notion
+│   ├── local-scrape.mjs                  # playwright + chromium 爬蟲
+│   ├── generate-static.py                # SQLite → docs/index.html
+│   ├── notify.py                         # Telegram 統一介面
+│   ├── scan_config.py                    # 預算等共用設定
+│   └── (legacy) build-tasks.py / mass-scan-direct.py / import-results.py
 │
 ├── data/
-│   └── flight-results.sqlite     # 本機 SQLite(不上傳 git)
+│   └── flight-results.sqlite             # 本機 SQLite(gitignore)
 │
-├── types/
-│   └── ...                       # TypeScript 型別
+├── docs/                                 # GitHub Pages root
+│   ├── index.html                        # 公開靜態報告
+│   └── results.json
 │
-├── .env.local                    # 環境變數(不上傳 git)
+├── .env.local                            # 環境變數(gitignore)
 ├── package.json
-├── vercel.json
-└── README.md
+└── vercel.json
 ```
 
 ---
 
-## 🔧 環境變數
+## 🔄 主要 flow
 
-`.env.local`(本機 + Vercel Project Settings 都要設):
+### A. 建一個 4-segment monitoring target
+
+1. 開 `http://localhost:3000/targets/new`
+2. 票種選 **外站四段**
+3. 每段選機場（按 chip 或輸入後按 Enter 加入多選）+ 日期
+4. 填預算（經濟艙 50,000、商務艙 80,000）
+5. 「新增並立即掃描」→ Notion 寫一筆 + dev server 觸發 scan
+
+### B. 批次跑所有 active targets
 
 ```bash
-# === Telegram(必填)===
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
+# 1. orchestrator
+NODE20=/opt/homebrew/opt/node@20/bin/node python3 scripts/scan-targets-direct.py --concurrency 6
 
-# === Notion(必填)===
-NOTION_TOKEN=secret_xxxxxxxxxx
-NOTION_TARGETS_DB_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-NOTION_RESULTS_DB_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+# 2. (另開 terminal) tailer 即時通知
+python3 scripts/watch-hits.py
 
-# === 預算(可調)===
-BUDGET_ECON=40000
-BUDGET_BIZ=120000
-
-# === 本機 Node 路徑(可選,沒設會自動找)===
-NODE20=/usr/local/bin/node
+# 預期:
+# - Telegram「🚀 直接掃描開始」一次
+# - 每筆新低價 Telegram 響鈴
+# - 結束「🏁 直接掃描完成 Xh / hits=Y」
 ```
 
-⚠️ **Vercel deploy**:要去 Project Settings → Environment Variables 設,`.env.local` 不會自動上 Vercel。
+### C. 看歷史
+
+- **Telegram**：每筆命中
+- **Notion Flight Results**：完整 history
+- **GitHub Pages**：公開靜態（scan 完成時推送）
 
 ---
 
-## 📋 Notion DB Schema
+## 🐛 常見問題
 
-### Targets DB(使用者編輯)
+### Q: scan 全部 0 命中、HTML body 永遠 length=0
 
-| 欄位 | 類型 | 說明 |
-|------|------|------|
-| Name | title | 目標名稱 |
-| Enabled | checkbox | 是否參與批次掃描 |
-| Budget_Econ | number | 經濟艙預算上限 |
-| Budget_Biz | number | 商務艙預算上限 |
-| Cabins | multi_select | economy / business |
-| Seg1_From | rich_text | JSON 陣列:`["NRT", "HND", ...]` |
-| Seg1_Dates | rich_text | JSON 陣列:`["2026-03-02", ...]` |
-| Seg2_To | rich_text | JSON 陣列 |
-| Seg2_Dates | rich_text | JSON 陣列 |
-| Seg3_StayMin | number | 最少停留天數 |
-| Seg3_StayMax | number | 最多停留天數 |
-| Seg4_From | rich_text | JSON 陣列(台北 / 松山) |
-| Seg4_To | rich_text | JSON 陣列(可跟 Seg1 不同) |
-| Seg4_Dates | rich_text | JSON 陣列 |
-| NotifyDropPct | number | 跌幾 % 才通知(預設 5) |
-| LastScanAt | date | 最後掃描時間 |
+eztravel 有 **Imperva Incapsula** 防爬機制。`local-scrape.mjs` 每個 worker 啟動時會先去 homepage 過 challenge 拿 cookie。如果 0 命中：
 
-### Results DB(本機批次寫入)
+1. 檢查 `.env.local` 有沒有 `VERCEL=1`（若有會錯把 chromium 當 Lambda binary，已在 `playwright-runtime.ts` 加 `process.platform === 'linux'` 守衛）
+2. 大量平行請求可能被 Incapsula 短期 ban → 等 15 分鐘 + 降 concurrency 到 3-4
 
-| 欄位 | 類型 |
-|------|------|
-| Title | title |
-| out1 | rich_text |
-| out4 | rich_text |
-| nz | rich_text |
-| seg4_airport | rich_text |
-| cabin | select(economy / business)|
-| cheapestPrice | number |
-| bookingUrl | url |
-| seg1_date | date |
-| seg2_date | date |
-| seg3_date | date |
-| seg4_date | date |
-| variation_idx | number |
-| updatedAt | date |
+### Q: GitHub Pages 看不到最新結果
 
----
-
-## 🚀 怎麼跑
-
-### 本機批次(主流程)
+`scan-targets-direct.py` 是寫 Notion 與本機 SQLite，**沒有自動 regen docs/**。要手動：
 
 ```bash
-cd scripts
-python run-local-batch.py
+python3 scripts/generate-static.py
+git add docs/ && git commit -m "refresh report" && git push
 ```
 
-選項:
+或讓 `watch-hits.py` 帶 `--push-interval` 自動推（commit noisy）。
+
+### Q: Vercel deploy 跳 402 Payment Required
+
+team 被 fair-use 擋。月初應該重置。本機 dev 不受影響。
+
+### Q: Node 版本錯誤 (playwright 要 18+)
 
 ```bash
-# 跑批次但不發 Telegram
-python run-local-batch.py --no-tg
-
-# 改 batch size / concurrency
-python run-local-batch.py --batch-size 100 --concurrency 6
-
-# 跳過最後的 send-price-report
-python run-local-batch.py --skip-report
-```
-
-排程(macOS):
-
-```bash
-# crontab -e
-0 6 * * * cd /path/to/flight_searcher/scripts && python run-local-batch.py >> /tmp/flight.log 2>&1
-```
-
-### Vercel(自動)
-
-```bash
-git push  # Vercel 自動 deploy
-```
-
-### 元件測試
-
-```bash
-npm run dev
-# 開啟:
-#   http://localhost:3000/airport-picker-demo
-#   http://localhost:3000/date-picker-demo
+brew install node@20
+/opt/homebrew/opt/node@20/bin/node --version
+# 跑 script 時前面加 NODE20 環境變數
 ```
 
 ---
 
-## 🧪 各模組測試
-
-```bash
-# Telegram 通知
-python scripts/notify.py "🧪 test"
-
-# 機場群組展開
-python scripts/airport_groups.py
-
-# 組合展開(印出範例)
-python scripts/task_expander.py
-```
-
----
-
-## 📊 Telegram 通知時機
-
-| 來源 | 時機 | 範例 |
-|------|------|------|
-| 本機批次 | 開始 | 🟢 開始掃描 1234 組合 |
-| 本機批次 | 每 10% | 📊 進度 50%(617/1234)|
-| 本機批次 | 命中(每筆)| 💰 經濟艙 $32,000 / TPE-AKL-WLG-TPE |
-| 本機批次 | 完成 | ✅ 完成,共 12 筆,最低 $28,500 |
-| Vercel scan | 跌價達門檻 | 💸 跌 8% / $35,000 → $32,200 |
-
----
-
-## 🏗️ 模組職責
-
-### 📜 scripts/run-local-batch.py
-批次主控,負責:
-- 從 Notion 撈 enabled targets(透過 build-tasks)
-- 切 batch、跑 scrape、import 結果
-- 進度 / 完成 Telegram
-- 失敗復原(一批失敗不會死整個)
-
-### 📜 scripts/build-tasks.py ⚠️ **待改寫**
-- ❌ 目前:舊版,可能還是用寫死 config 展開
-- 🎯 目標:從 Notion Targets DB 撈所有 enabled targets
-- 🎯 目標:對每個 target 呼叫 `task_expander.expand_target()`
-- 🎯 目標:輸出 JSONL 給 scraper
-
-### 📜 scripts/local-scrape.mjs ⚠️ **待加功能**
-- ✅ Playwright 完整版(本機才能跑)
-- ✅ 接收 JSONL,平行爬資料
-- ❌ 待加:**剪枝** — 第一段 > 預算就 skip
-- ❌ 待加:**即時 TG** — 找到符合就發
-
-### 📜 scripts/import-results.py ✅
-- ✅ 讀爬蟲 JSONL
-- ✅ 寫 SQLite(全部結果)
-- ✅ Upsert Notion Results(只有符合預算的)
-- ✅ 比對歷史新低,發 Telegram
-- ✅ JSON 防爛、transaction、避免重複 TG
-
-### 📜 scripts/notify.py ✅
-- ✅ 統一 Telegram 介面
-- ✅ Rate limit(1.1s 間隔)
-- ✅ 訊息範本(start / progress / hit / done)
-
-### 📜 scripts/task_expander.py ✅
-- ✅ 從 target spec(4-segment + 預算)展開所有組合
-- ✅ 支援絕對日期 + 相對日期(Seg3 = Seg2 + N 天)
-- ✅ `count_combinations()` 快速估數量(供 UI 預覽)
-
-### 📜 scripts/airport_groups.py ✅
-- ✅ 預設群組:日本主要、韓國、台北、紐西蘭...
-- ✅ 對應前端 `lib/airports.ts` 的 `QUICK_GROUPS`
-
-### 📦 lib/airports.ts ✅
-- ✅ ~60 個亞太 + 紐西蘭機場
-- ✅ code / 中文 / 英文 / 國家分組
-- ✅ QUICK_GROUPS、searchAirports helper
-
-### 🧩 components/AirportPicker.tsx ✅
-- ✅ 機場多選元件
-- ✅ 快速群組、國家分組、搜尋、chip
-- ✅ Tailwind only,沒依賴 UI library
-
-### 🧩 components/DatePicker.tsx ✅
-- ✅ 日期多選元件
-- ✅ 單點 / 範圍 兩模式
-- ✅ 整月全選、過去禁用
-
-### 🌐 app/api/targets/[id]/scan/route.ts ✅
-Vercel 端單筆掃描:
-- ✅ 從 Notion 撈 target
-- ✅ 用 chromium-min 爬
-- ✅ 寫回 Notion Results
-- ✅ 跌價達門檻 → Telegram
-
----
-
-## ✅ 已完成
-
-### 後端
-- ✅ Notion 同步(import-results.py 自動 upsert)
-- ✅ Telegram 進度通知(start / 每 10% / hit / 完成)
-- ✅ 4-segment 組合展開邏輯(支援相對日期)
-- ✅ 機場群組設定(Python + TypeScript 同步)
-- ✅ JSON 防爛、transaction、避免重複 TG 等 bug 修
-- ✅ NODE20 動態尋找(原本寫死)
-- ✅ 一批失敗不影響其他批
-
-### 前端
-- ✅ AirportPicker 元件(60 亞太機場)
-- ✅ DatePicker 元件(單點 / 範圍)
-- ✅ Demo 頁面
-
----
-
-## 🚧 待辦清單
-
-### 🔥 必要(下次優先做)
-- [ ] **新版 `build-tasks.py`** — 從 Notion Targets DB 撈,用 task_expander 展開
-- [ ] **scraper 剪枝** — `local-scrape.mjs` 加 `--econ-cap / --biz-cap`,第一段超預算 skip
-- [ ] **scraper 即時 TG** — 找到符合預算立刻發
-- [ ] **完整新增 Target 表單** — 整合 AirportPicker + DatePicker
-- [ ] **`/api/targets` POST** — 表單 Save 寫 Notion
-
-### 💡 加分
-- [ ] **`/api/expand-preview`** — 前端即時算組合數
-- [ ] **Notion sync 時 idempotency lock** — 用 `@vercel/kv`,防重複 scan
-- [ ] **Targets 列表頁** — 顯示所有 target + 最近 Results
-- [ ] **價格趨勢圖** — 從 SQLite 撈歷史畫圖
-
-### 🐛 已知 bug / tech debt
-- [ ] `lib/notion.ts` 是否有 retry / rate limit?(需要確認)
-- [ ] `route.ts` 的 `getFlightResults(5)` magic number → 改 10 比較保險
-- [ ] `today` 時區改成 Asia/Taipei
-
----
-
-## ⚠️ 已知限制
-
-1. **Vercel function 5 分鐘 timeout** — 單筆 scan 不能跑太多 segment 變化
-2. **Notion API 3 req/s** — 大量同步時要小心 rate limit(已加 retry)
-3. **`@vercel/kv` 沒用到** — 之前計畫加 idempotency lock,還沒做
-4. **`build-tasks.py` 還是舊格式** — 沒改成從 Notion 撈,需要重寫
-
----
-
-## 🛠️ Tech Stack
+## 🛠️ Tech stack
 
 | 層級 | 技術 |
 |------|------|
-| Frontend | Next.js 16 + React 19 + Tailwind CSS |
-| Vercel scraper | playwright-core + @sparticuz/chromium-min |
-| Local scraper | playwright(完整版) |
+| Frontend | Next.js 16 + React 19 + Tailwind |
+| Local scraper | playwright-core + 本機 chromium |
+| Vercel scraper | playwright-core + @sparticuz/chromium-min（線上才用） |
 | Database (local) | SQLite |
 | Database (cloud) | Notion |
-| Cache (cloud) | @vercel/kv(Redis,目前未用) |
 | 通知 | Telegram Bot API |
-| 部署 | Vercel |
+| 公開頁面 | GitHub Pages（`/docs`） |
 
 ---
 
 ## 📝 開發筆記
 
-### Next.js 16 注意
-這個 repo 用 Next 16,有 breaking change:
+### Next.js 16
 
-- `params` 變 Promise:`await ctx.params`
-- 看 `AGENTS.md`,給 AI 工具讀 `node_modules/next/dist/docs/`
+- `params` 變 async Promise：`const { id } = await ctx.params`
+- 任何 `app/api/.../[id]/route.ts` 都要記得
 
-### `/compact` 後重連 Telegram
-Claude Code `/compact` 後 Telegram bridge 可能掉線,要重新 pair。
+### Incapsula
 
-### Notion rate limit
-3 req/s/integration,大量同步用我寫的 `import-results.py` 有 retry,但仍要小心。
+- node_modules 進 fingerprint 偵測，每個 context 開銷 ~4s warm-up
+- 每個 worker 維持 1 個 context、N 個 page 是正解
+
+### 排程跑
+
+```bash
+# crontab -e
+0 4 * * * cd /Users/way/claude_proj/flight_searcher && NODE20=/opt/homebrew/opt/node@20/bin/node python3 scripts/scan-targets-direct.py --concurrency 6 >> /tmp/flight-cron.log 2>&1
+```
+
+每天凌晨 4 點掃一次。cron 環境變數不一樣，把 PATH 顯式設好。
 
 ---
 
