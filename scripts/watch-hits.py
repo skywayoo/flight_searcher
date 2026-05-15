@@ -87,7 +87,16 @@ def notion_upsert_result(env, target_id, target_name, r):
         f"{segs[2]['from']}→TPE ({segs[2]['date']}) | "
         f"{segs[3]['from']}→{r.get('out4')} ({segs[3]['date']})"
     )
-    top5 = [{"airline": p["airline"], "price": p["price"]} for p in r["prices"][:5]]
+    top5 = [{
+        "airline": p["airline"],
+        "totalPrice": p["price"],
+        "cabin": r.get("cabin", "economy"),
+        "outStation": r.get("out1"),
+        "outboundAirport": r.get("out4"),
+        "outboundDate": segs[0]["date"],
+        "returnDate": segs[3]["date"],
+        "bookingUrl": r.get("url", ""),
+    } for p in r["prices"][:5]]
     props = {
         "Name": {"title": [{"text": {"content": target_name}}]},
         "TargetId": {"rich_text": [{"text": {"content": target_id}}]},

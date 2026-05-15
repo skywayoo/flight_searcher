@@ -249,20 +249,40 @@ function chunkText(s: string, size = 1900): { text: { content: string } }[] {
  * targetId → latest valid (cheapestPrice > 0) entry. ONE paginated query
  * total (instead of N+1 per target).
  */
-export async function getAllResultsLatest(): Promise<Record<string, { price: number; date: string; changePct?: number }>> {
+export async function getAllResultsLatest(): Promise<Record<string, { price: number; date: string; changePct?: number; out1?: string; out4?: string; airline?: string; bookingUrl?: string }>> {
   const r = await queryDB(DB.RESULTS, {
     sorts: [{ property: 'ScrapeDate', direction: 'descending' }],
   });
-  const out: Record<string, { price: number; date: string; changePct?: number }> = {};
+  const out: Record<string, { price: number; date: string; changePct?: number; out1?: string; out4?: string; airline?: string; bookingUrl?: string }> = {};
   for (const p of r.results) {
     const tid = getRich(p, 'TargetId');
-    if (!tid || out[tid]) continue;
+    if (!tid) continue;
     const cp = getNum(p, 'CheapestPrice');
     if (cp <= 0) continue;
+    // Pull the cheapest Top5 entry — homepage uses it for compact "ICN→ZQN→TPE→ICN" preview
+    let out1: string | undefined;
+    let out4: string | undefined;
+    let airline: string | undefined;
+    let bookingUrl: string | undefined;
+    try {
+      const raw = getRichConcat(p, 'Top5');
+      const lastBracket = raw.lastIndexOf(']');
+      const jsonStr = lastBracket >= 0 ? raw.slice(0, lastBracket + 1) : raw;
+      const arr = JSON.parse(jsonStr) as Array<{ outStation?: string; outboundAirport?: string; out1?: string; out4?: string; airline?: string; bookingUrl?: string }>;
+      if (arr[0]) {
+        out1 = arr[0].outStation ?? arr[0].out1;
+        out4 = arr[0].outboundAirport ?? arr[0].out4;
+        airline = arr[0].airline;
+        bookingUrl = arr[0].bookingUrl;
+      }
+    } catch { /* ignore */ }
+    // Keep the first (cheapest) we see per target
+    if (out[tid]) continue;
     out[tid] = {
       price: cp,
       date: getDate(p, 'ScrapeDate'),
       changePct: getNum(p, 'ChangePct') || undefined,
+      out1, out4, airline, bookingUrl,
     };
   }
   return out;

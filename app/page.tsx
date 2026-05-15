@@ -112,16 +112,33 @@ function segLine(segs: SegSpec[] | undefined): string | null {
     .join('  ');
 }
 
+function compactRoute(t: { segments?: SegSpec[] }, latest: { out1?: string; out4?: string }): string | null {
+  // Prefer the actual hit's route (ICN-ZQN-TPE-ICN style).
+  if (latest.out1 && latest.out4 && t.segments?.length === 4) {
+    const nzOut = t.segments[1].to.split(',')[0];
+    const nzIn = t.segments[2].from.split(',')[0];
+    return `${latest.out1}-${nzOut}-${nzIn === nzOut ? '' : nzIn + '-'}TPE-${latest.out4}`.replace('--', '-');
+  }
+  // No hit yet — give a structural preview from the target's segments.
+  if (t.segments?.length === 4) {
+    const f = (s: string) => (s || '').split(',')[0];
+    return `${f(t.segments[0].from)}-${f(t.segments[1].to)}-${f(t.segments[2].from)}-${f(t.segments[3].to)}`;
+  }
+  return null;
+}
+
 function TargetCard({
   target: t,
   latest,
 }: {
   target: { id: string; name: string; tripType: string; departureAirport: string; region: string; destinationAirports: string[]; segments?: SegSpec[]; outboundStart: string; outboundEnd: string; tripLengthMin?: number; tripLengthMax?: number; status: string };
-  latest: { price: number; date: string; changePct?: number };
+  latest: { price: number; date: string; changePct?: number; out1?: string; out4?: string; airline?: string; bookingUrl?: string };
 }) {
   const regionLabel = REGIONS[t.region]?.label || t.region;
   const isPaused = t.status === 'paused';
-  const seg = t.tripType === 'multi_city_4' ? segLine(t.segments) : null;
+  const isMulti = t.tripType === 'multi_city_4';
+  const compact = isMulti ? compactRoute(t, latest) : null;
+  const seg = isMulti ? segLine(t.segments) : null;
   return (
     <Link
       href={`/targets/${t.id}`}
@@ -129,12 +146,24 @@ function TargetCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <p className="font-semibold text-white truncate">{t.name}</p>
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            {compact ? (
+              <p className="font-semibold text-white font-mono">{compact}</p>
+            ) : (
+              <p className="font-semibold text-white truncate">{t.name}</p>
+            )}
             <span className="shrink-0 inline-block rounded bg-blue-900/40 px-1.5 py-0.5 text-[10px] font-medium text-blue-300">
               {TRIP_TYPE_LABEL[t.tripType]}
             </span>
+            {latest.airline && (
+              <span className="shrink-0 inline-block rounded bg-orange-900/30 px-1.5 py-0.5 text-[10px] text-orange-300">
+                {latest.airline}
+              </span>
+            )}
           </div>
+          {compact && (
+            <p className="text-[10px] text-gray-600 mb-1">{t.name}</p>
+          )}
           {seg ? (
             <p className="text-[11px] text-gray-400 leading-snug break-words font-mono">{seg}</p>
           ) : (
