@@ -36,7 +36,11 @@ async function cleanTempDirs(): Promise<void> {
 
 async function launchBrowser(): Promise<Browser> {
   await cleanTempDirs();
-  const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.VERCEL;
+  // Sparticuz chromium binary is linux-x64. Only use it when we're actually
+  // on a Linux Lambda; if .env.local accidentally has VERCEL=1 on a Mac dev
+  // box, we'd otherwise spawn the wrong arch (ENOEXEC).
+  const isLambda = process.platform === 'linux' &&
+    (!!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.VERCEL);
   const { chromium } = await import('playwright-core');
   if (isLambda) {
     const chromiumPkg = await import('@sparticuz/chromium-min');

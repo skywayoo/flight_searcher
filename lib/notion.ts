@@ -187,10 +187,40 @@ function getRichConcat(p: Record<string, unknown>, key: string): string {
 
 function rowToResult(p: Record<string, unknown>): FlightResult {
   let top5: FlightCombination[] = [];
+  let routeText: string | undefined;
   try {
     const raw = getRichConcat(p, 'Top5');
-    if (raw) top5 = JSON.parse(raw);
+    if (raw) {
+      // The direct-scan watcher writes `JSON + "\n" + routeDescription` into
+      // Top5. Slice the JSON prefix so JSON.parse doesn't choke on the suffix.
+      let jsonStr = raw;
+      const newline = raw.indexOf('\n');
+      const lastBracket = raw.lastIndexOf(']');
+      if (newline > 0 && lastBracket >= 0 && lastBracket < raw.length - 1) {
+        jsonStr = raw.slice(0, lastBracket + 1);
+        routeText = raw.slice(newline + 1).trim();
+      }
+      top5 = JSON.parse(jsonStr);
+    }
   } catch { /* ignore */ }
+  // Normalize minimal-shape rows (only {airline, price}) into FlightCombination
+  // so detail pages render something useful.
+  top5 = top5.map((c: Partial<FlightCombination> & { price?: number; airline?: string; out1?: string; out4?: string }) => ({
+    totalPrice: c.totalPrice ?? c.price ?? 0,
+    currency: c.currency ?? 'TWD',
+    outboundDate: c.outboundDate ?? '',
+    outboundAirport: c.outboundAirport ?? c.out4 ?? '',
+    outStation: c.outStation ?? c.out1,
+    airline: c.airline ?? '',
+    cabin: (c.cabin as FlightCombination['cabin']) ?? 'economy',
+    segments: c.segments ?? [],
+    weekdayDays: c.weekdayDays ?? 0,
+    source: c.source ?? 'eztravel',
+    bookingUrl: c.bookingUrl,
+    bookingUrls: c.bookingUrls,
+    // attach the route text so the UI can show it (cast for FlightCombination)
+    ...(routeText ? { _routeText: routeText } : {}),
+  })) as FlightCombination[];
   return {
     id: pid(p),
     targetId: getRich(p, 'TargetId'),

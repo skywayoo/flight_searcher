@@ -98,15 +98,30 @@ export default async function Home() {
   );
 }
 
+type SegSpec = { from: string; to: string; date: string; dateEnd?: string };
+
+function segLine(segs: SegSpec[] | undefined): string | null {
+  if (!segs || segs.length === 0) return null;
+  const fmtAirports = (codes: string) => {
+    const list = (codes || '').split(',').map((c) => c.trim()).filter(Boolean);
+    if (list.length <= 3) return list.join('/');
+    return list.slice(0, 3).join('/') + '+' + (list.length - 3);
+  };
+  return segs
+    .map((s, i) => `${i + 1}.${fmtAirports(s.from)}→${fmtAirports(s.to)} ${(s.date || '').slice(5)}`)
+    .join('  ');
+}
+
 function TargetCard({
   target: t,
   latest,
 }: {
-  target: { id: string; name: string; tripType: string; departureAirport: string; region: string; destinationAirports: string[]; outboundStart: string; outboundEnd: string; tripLengthMin?: number; tripLengthMax?: number; status: string };
+  target: { id: string; name: string; tripType: string; departureAirport: string; region: string; destinationAirports: string[]; segments?: SegSpec[]; outboundStart: string; outboundEnd: string; tripLengthMin?: number; tripLengthMax?: number; status: string };
   latest: { price: number; date: string; changePct?: number };
 }) {
   const regionLabel = REGIONS[t.region]?.label || t.region;
   const isPaused = t.status === 'paused';
+  const seg = t.tripType === 'multi_city_4' ? segLine(t.segments) : null;
   return (
     <Link
       href={`/targets/${t.id}`}
@@ -120,12 +135,16 @@ function TargetCard({
               {TRIP_TYPE_LABEL[t.tripType]}
             </span>
           </div>
-          <p className="text-xs text-gray-400">
-            {t.departureAirport} → {regionLabel}
-            {t.destinationAirports.length > 0 && (
-              <span className="text-gray-500"> ({t.destinationAirports.join('/')})</span>
-            )}
-          </p>
+          {seg ? (
+            <p className="text-[11px] text-gray-400 leading-snug break-words font-mono">{seg}</p>
+          ) : (
+            <p className="text-xs text-gray-400">
+              {t.departureAirport} → {regionLabel}
+              {t.destinationAirports.length > 0 && (
+                <span className="text-gray-500"> ({t.destinationAirports.join('/')})</span>
+              )}
+            </p>
+          )}
         </div>
         <div className="text-right shrink-0">
           <p className="text-lg font-bold text-white">${fmt(latest.price)}</p>

@@ -29,24 +29,47 @@ function buildMultiCityUrl(segments, cabin) {
   return `https://flight.eztravel.com.tw/tickets-multicity-${firstFrom}-${firstTo}/?${segParams}&adults=1&children=0&infants=0&direct=false&cabintype=${cabin === 'business' ? 'business' : 'any'}`;
 }
 
-async function scrapeOne(browser, segments, cabin) {
-  const url = buildMultiCityUrl(segments, cabin);
+function buildOneWayUrl(from, to, date, cabin) {
+  // Single-segment via multicity URL pattern — eztravel accepts 1-segment
+  // multicity and renders the same airline price list.
+  const f = from.toUpperCase();
+  const t = to.toUpperCase();
+  return `https://flight.eztravel.com.tw/tickets-multicity-${f}-${t}/?dcity1=${f}&acity1=${t}&date1=${fmtEzDate(date)}&dport1=${f}&aport1=${t}&adults=1&children=0&infants=0&direct=false&cabintype=${cabin === 'business' ? 'business' : 'any'}`;
+}
+
+async function createWarmContext(browser) {
+  // eztravel sits behind Imperva Incapsula; the result URLs are blocked
+  // until we visit the homepage and let the JS anti-bot challenge set
+  // cookies. Each worker keeps one warmed context for its whole run.
   const ctx = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     locale: 'zh-TW',
   });
   const page = await ctx.newPage();
-  const t0 = Date.now();
   try {
     await page.goto('https://flight.eztravel.com.tw/', { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.waitForTimeout(1500);
+    // Give Incapsula's challenge a moment to settle the cookies.
+    await page.waitForTimeout(4000);
+  } finally {
+    await page.close().catch(() => {});
+  }
+  return ctx;
+}
+
+async function scrapeOne(ctx, segments, cabin) {
+  const url = segments.length === 1
+    ? buildOneWayUrl(segments[0].from, segments[0].to, segments[0].date, cabin)
+    : buildMultiCityUrl(segments, cabin);
+  const page = await ctx.newPage();
+  const t0 = Date.now();
+  try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
-    // Adaptive wait: poll every 300ms, bail at 15s
+    // Adaptive wait: poll every 300ms, bail at 12s.
     let bodyText = '';
     const startWait = Date.now();
-    while (Date.now() - startWait < 15000) {
+    while (Date.now() - startWait < 12000) {
       bodyText = await page.evaluate(() => document.body.innerText);
       if (bodyText.includes('TWD') || bodyText.includes('沒有符合的結果')) break;
       await page.waitForTimeout(300);
@@ -90,7 +113,6 @@ async function scrapeOne(browser, segments, cabin) {
     return { ok: false, error: e.message?.slice(0, 200) || String(e), url, durationMs: Date.now() - t0 };
   } finally {
     await page.close().catch(() => {});
-    await ctx.close().catch(() => {});
   }
 }
 
@@ -134,32 +156,30 @@ async function main() {
   let completed = 0;
   const started = Date.now();
 
-  // Worker pool
+  // Worker pool. Each worker holds its own warmed context — visiting the
+  // homepage once at startup lets Incapsula set anti-bot cookies that the
+  // result URLs need.
   const queue = [...tasks];
   const workers = Array.from({ length: concurrency }, async (_, w) => {
+    let ctx;
+    try {
+      ctx = await createWarmContext(browser);
+    } catch (e) {
+      console.error(`[w${w}] failed to warm context: ${e.message}`);
+      return;
+    }
     while (queue.length) {
       const task = queue.shift();
       if (!task) break;
       const t0 = Date.now();
       try {
-        const result = await scrapeOne(browser, task.segments, task.cabin);
-        const out = {
-          out1: task.out1, out4: task.out4,
-          nz_out: task.nz_out, nz_in: task.nz_in,
-          seg4_airport: task.seg4_airport, seg4_date: task.seg4_date,
-          variation: task.variation, cabin: task.cabin,
-          segments: task.segments,
-          ...result,
-        };
-        appendFileSync(output, JSON.stringify(out) + '\n');
+        const result = await scrapeOne(ctx, task.segments, task.cabin);
+        appendFileSync(output, JSON.stringify({ ...task, ...result }) + '\n');
       } catch (e) {
         appendFileSync(output, JSON.stringify({
-          out1: task.out1, out4: task.out4,
-          nz_out: task.nz_out, nz_in: task.nz_in,
-          seg4_airport: task.seg4_airport, seg4_date: task.seg4_date,
-          variation: task.variation, cabin: task.cabin,
-          segments: task.segments,
-          ok: false, error: String(e).slice(0, 200),
+          ...task,
+          ok: false,
+          error: String(e).slice(0, 200),
           durationMs: Date.now() - t0,
         }) + '\n');
       }
@@ -171,6 +191,7 @@ async function main() {
         console.error(`[w${w}] ${completed}/${tasks.length} elapsed=${elapsed}s eta=${eta}s rate=${rate.toFixed(2)}/s`);
       }
     }
+    await ctx.close().catch(() => {});
   });
 
   await Promise.all(workers);

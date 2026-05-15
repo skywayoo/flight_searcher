@@ -76,7 +76,9 @@ export async function scrapeTarget(target: FlightTarget): Promise<FlightCombinat
         } catch (e) {
           console.error('multi-city combo failed', combo.map((s) => `${s.from}→${s.to}`).join(','), e);
         }
-        await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
+        // Brief cool-off between scrapes; eztravel doesn't seem to rate-limit
+        // for our volume on a single residential IP. Keep small but non-zero.
+        await new Promise((r) => setTimeout(r, 200 + Math.random() * 300));
       }
     }
   } else {

@@ -48,18 +48,43 @@ export default async function TargetDetail({ params }: { params: Promise<{ id: s
               {target.status === 'active' ? '啟用中' : '已暫停'}
             </span>
           </div>
-          <p className="text-sm text-gray-300">
-            {target.departureAirport} → {target.region}
-            {target.destinationAirports.length > 0 && (
-              <span className="text-gray-500"> ({target.destinationAirports.join('/')})</span>
-            )}
-          </p>
-          <p className="text-xs text-gray-500">
-            出發日：{target.outboundStart} ~ {target.outboundEnd}
-            {target.tripLengthMin && ` · 行程 ${target.tripLengthMin}-${target.tripLengthMax} 天`}
-          </p>
-          {target.budgetCap && (
-            <p className="text-xs text-gray-500">預算上限：${fmt(target.budgetCap)}</p>
+          {target.tripType === 'multi_city_4' && target.segments && target.segments.length === 4 ? (
+            <div className="rounded-lg bg-gray-950/60 p-3 font-mono text-[11px] text-gray-300 space-y-1">
+              {target.segments.map((s, i) => {
+                const fromList = (s.from || '').split(',').filter(Boolean);
+                const toList = (s.to || '').split(',').filter(Boolean);
+                return (
+                  <div key={i} className="flex gap-2">
+                    <span className="text-gray-500 w-4">{i + 1}.</span>
+                    <span className="flex-1">
+                      <span className="text-blue-300">{fromList.join('/')}</span>
+                      <span className="text-gray-500 mx-1">→</span>
+                      <span className="text-blue-300">{toList.join('/')}</span>
+                    </span>
+                    <span className="text-gray-500">{s.date}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <>
+              <p className="text-sm text-gray-300">
+                {target.departureAirport} → {target.region}
+                {target.destinationAirports.length > 0 && (
+                  <span className="text-gray-500"> ({target.destinationAirports.join('/')})</span>
+                )}
+              </p>
+              <p className="text-xs text-gray-500">
+                出發日：{target.outboundStart} ~ {target.outboundEnd}
+                {target.tripLengthMin && ` · 行程 ${target.tripLengthMin}-${target.tripLengthMax} 天`}
+              </p>
+            </>
+          )}
+          {(target.budgetCapEcon || target.budgetCapBusiness || target.budgetCap) && (
+            <p className="text-xs text-gray-500">
+              預算：經濟 ${fmt(target.budgetCapEcon || target.budgetCap || 0)}
+              {target.budgetCapBusiness ? ` · 商務 $${fmt(target.budgetCapBusiness)}` : ''}
+            </p>
           )}
           <p className="text-xs text-gray-500">
             上次掃描：{target.lastScrapeAt || '尚未'}
@@ -94,33 +119,30 @@ export default async function TargetDetail({ params }: { params: Promise<{ id: s
                     {cabin === 'economy' ? '經濟艙' : '商務艙'}前 {items.length} 名
                   </h2>
                   {items.map((c, i) => {
-                    const airportInfo = getAirportByCode(c.outboundAirport);
+                    const cAny = c as unknown as { _routeText?: string };
+                    const route = cAny._routeText;
+                    const start = c.outStation ?? target.segments?.[0]?.from?.split(',')[0];
+                    const end = c.outboundAirport ?? target.segments?.[3]?.to?.split(',')[0];
                     return (
                       <div key={`${cabin}-${i}`} className="rounded-xl bg-gray-900 p-4 space-y-2">
                         <div className="flex items-start justify-between">
-                          <div>
+                          <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${
                                 cabin === 'business' ? 'bg-purple-900/40 text-purple-300' : 'bg-orange-900/40 text-orange-300'
                               }`}>
                                 #{i + 1}
                               </span>
-                              <p className="text-sm font-semibold text-white">
-                                {target.departureAirport} → {c.outboundAirport}
-                                {airportInfo && <span className="text-gray-500 ml-1">{airportInfo.city}</span>}
+                              <p className="text-sm font-semibold text-white truncate">
+                                {start} → … → {end}
                               </p>
                             </div>
-                            {c.outStation && (
-                              <p className="text-xs text-purple-400 mt-0.5">外站起點：{c.outStation}</p>
+                            {route && (
+                              <p className="text-[11px] text-gray-400 mt-1 font-mono whitespace-pre-line break-words">{route}</p>
                             )}
-                            <p className="text-xs text-gray-500 mt-0.5">
-                              {c.outboundDate}{c.returnDate && ` ~ ${c.returnDate}`}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {c.airline} · 平日 {c.weekdayDays} 天
-                            </p>
+                            <p className="text-xs text-gray-500 mt-1">{c.airline || '—'}</p>
                           </div>
-                          <p className="text-lg font-bold text-white">${fmt(c.totalPrice)}</p>
+                          <p className="text-lg font-bold text-white shrink-0">${fmt(c.totalPrice)}</p>
                         </div>
                         {(c.bookingUrls?.eztravel || c.bookingUrl) && (
                           <a
