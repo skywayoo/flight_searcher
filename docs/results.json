@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-05-15 23:24",
-  "totalScrapes": 30,
-  "priced": 30,
+  "generatedAt": "2026-05-16 16:21",
+  "totalScrapes": 31,
+  "priced": 31,
   "empty": 0,
   "errored": 0,
   "results": [
@@ -393,6 +393,19 @@
       "seg4_date": "2027-04-29",
       "cheapest_price": 47517,
       "booking_url": "https://flight.eztravel.com.tw/tickets-multicity-PUS-TPE/?dcity1=PUS&acity1=TPE&date1=14%2F02%2F2027&dport1=PUS&aport1=TPE&dcity2=TPE&acity2=ZQN&date2=03%2F04%2F2027&dport2=TPE&aport2=ZQN&dcity3=CHC&acity3=TPE&date3=15%2F04%2F2027&dport3=CHC&aport3=TPE&dcity4=TPE&acity4=ICN&date4=29%2F04%2F2027&dport4=TPE&aport4=ICN&adults=1&children=0&infants=0&direct=false&cabintype=any",
+      "error": null
+    },
+    {
+      "out1": "ICN",
+      "out4": "ICN",
+      "v": 0,
+      "cabin": "economy",
+      "seg1_date": "2027-03-03",
+      "seg2_date": "2027-04-03",
+      "seg3_date": "2027-04-15",
+      "seg4_date": "2027-04-30",
+      "cheapest_price": 42476,
+      "booking_url": "https://flight.eztravel.com.tw/tickets-multicity-ICN-TPE/?dcity1=ICN&acity1=TPE&date1=03%2F03%2F2027&dport1=ICN&aport1=TPE&dcity2=TPE&acity2=ZQN&date2=03%2F04%2F2027&dport2=TPE&aport2=ZQN&dcity3=CHC&acity3=TPE&date3=15%2F04%2F2027&dport3=CHC&aport3=TPE&dcity4=TPE&acity4=ICN&date4=30%2F04%2F2027&dport4=TPE&aport4=ICN&adults=1&children=0&infants=0&direct=false&cabintype=any",
       "error": null
     }
   ]
