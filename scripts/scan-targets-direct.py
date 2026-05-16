@@ -151,7 +151,7 @@ def notion_create_result(token, db, target_id, target_name, cheapest, scrape_dat
         "ScrapeDate": {"date": {"start": scrape_date}},
         "CheapestPrice": {"number": cheapest},
         "Top5": {"rich_text": [{"text": {"content": json.dumps(top5, ensure_ascii=False)[:1900]}}]},
-        "Source": {"rich_text": [{"text": {"content": "eztravel"}}]},
+        "Source": {"select": {"name": "eztravel"}},
     }
     req = urllib.request.Request(
         "https://api.notion.com/v1/pages",
@@ -177,6 +177,7 @@ def main():
     ap.add_argument("--tasks-path", default="/tmp/flight-direct-tasks.jsonl")
     ap.add_argument("--results-path", default="/tmp/flight-direct-results.jsonl")
     ap.add_argument("--dry-run", action="store_true", help="Build tasks and stop")
+    ap.add_argument("--target-ids-file", help="JSON file with array of target IDs to limit scan to")
     args = ap.parse_args()
 
     env = load_env()
@@ -187,6 +188,12 @@ def main():
     print("Pulling active targets…", flush=True)
     targets = notion_query_active_targets(token, targets_db)
     print(f"  got {len(targets)} active targets")
+
+    if args.target_ids_file:
+        with open(args.target_ids_file) as f:
+            allow = set(json.load(f))
+        targets = [t for t in targets if t["id"] in allow]
+        print(f"  filtered to {len(targets)} targets matching --target-ids-file")
 
     # Index by id for downstream lookup
     by_id = {t["id"]: t for t in targets}

@@ -197,22 +197,22 @@ def main():
                 if key in seen:
                     continue
                 seen.add(key)
-                prev = best_by_target.get((tname, cabin), 10**9)
-                # Always write SQLite + Notion for every new (out1, out4) combo,
-                # but only Telegram-notify when it's a NEW BEST for the target.
+                # Write SQLite + Notion + Telegram for EVERY new (out1, out4) combo
+                # under budget (no "new-best" filter).
                 sqlite_insert_hit(conn, r)
                 target_id = r.get("target_id", "")
                 notion_upsert_result(env, target_id, tname, r)
                 pending_push = True
+                prev = best_by_target.get((tname, cabin), 10**9)
                 if cheapest < prev:
                     best_by_target[(tname, cabin)] = cheapest
-                    msg = (
-                        f"💰 {cabin} {cheapest:,} ｜ {tname}\n"
-                        f"{r.get('out1')}→TPE→…→{r.get('out4')} ({prices[0]['airline']})\n"
-                        f"{r.get('url','')}"
-                    )
-                    print(msg, flush=True)
-                    notify.send(env, msg)
+                msg = (
+                    f"💰 {cabin} {cheapest:,} ｜ {tname}\n"
+                    f"{r.get('out1')}→TPE→…→{r.get('out4')} ({prices[0]['airline']})\n"
+                    f"{r.get('url','')}"
+                )
+                print(msg, flush=True)
+                notify.send(env, msg)
         # Periodic regen + push
         now = time.time()
         if pending_push and (now - last_push) >= args.push_interval:
