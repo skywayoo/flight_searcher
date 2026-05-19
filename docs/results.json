@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-05-19 22:49",
-  "totalScrapes": 80,
-  "priced": 80,
+  "generatedAt": "2026-05-19 22:54",
+  "totalScrapes": 83,
+  "priced": 83,
   "empty": 0,
   "errored": 0,
   "results": [
@@ -1043,6 +1043,45 @@
       "seg4_date": "2027-04-30",
       "cheapest_price": 40295,
       "booking_url": "https://flight.eztravel.com.tw/tickets-multicity-KIX-TPE/?dcity1=KIX&acity1=TPE&date1=03%2F03%2F2027&dport1=KIX&aport1=TPE&dcity2=TPE&acity2=CHC&date2=03%2F04%2F2027&dport2=TPE&aport2=CHC&dcity3=ZQN&acity3=TPE&date3=15%2F04%2F2027&dport3=ZQN&aport3=TPE&dcity4=TPE&acity4=NRT&date4=30%2F04%2F2027&dport4=TPE&aport4=NRT&adults=1&children=0&infants=0&direct=false&cabintype=any",
+      "error": null
+    },
+    {
+      "out1": "KIX",
+      "out4": "FUK",
+      "v": 0,
+      "cabin": "economy",
+      "seg1_date": "2027-03-03",
+      "seg2_date": "2027-04-03",
+      "seg3_date": "2027-04-15",
+      "seg4_date": "2027-04-30",
+      "cheapest_price": 40295,
+      "booking_url": "https://flight.eztravel.com.tw/tickets-multicity-KIX-TPE/?dcity1=KIX&acity1=TPE&date1=03%2F03%2F2027&dport1=KIX&aport1=TPE&dcity2=TPE&acity2=CHC&date2=03%2F04%2F2027&dport2=TPE&aport2=CHC&dcity3=ZQN&acity3=TPE&date3=15%2F04%2F2027&dport3=ZQN&aport3=TPE&dcity4=TPE&acity4=FUK&date4=30%2F04%2F2027&dport4=TPE&aport4=FUK&adults=1&children=0&infants=0&direct=false&cabintype=any",
+      "error": null
+    },
+    {
+      "out1": "KIX",
+      "out4": "CTS",
+      "v": 0,
+      "cabin": "economy",
+      "seg1_date": "2027-03-03",
+      "seg2_date": "2027-04-03",
+      "seg3_date": "2027-04-15",
+      "seg4_date": "2027-04-30",
+      "cheapest_price": 43115,
+      "booking_url": "https://flight.eztravel.com.tw/tickets-multicity-KIX-TPE/?dcity1=KIX&acity1=TPE&date1=03%2F03%2F2027&dport1=KIX&aport1=TPE&dcity2=TPE&acity2=CHC&date2=03%2F04%2F2027&dport2=TPE&aport2=CHC&dcity3=ZQN&acity3=TPE&date3=15%2F04%2F2027&dport3=ZQN&aport3=TPE&dcity4=TPE&acity4=CTS&date4=30%2F04%2F2027&dport4=TPE&aport4=CTS&adults=1&children=0&infants=0&direct=false&cabintype=any",
+      "error": null
+    },
+    {
+      "out1": "KIX",
+      "out4": "KIX",
+      "v": 0,
+      "cabin": "economy",
+      "seg1_date": "2027-03-03",
+      "seg2_date": "2027-04-03",
+      "seg3_date": "2027-04-15",
+      "seg4_date": "2027-04-30",
+      "cheapest_price": 40295,
+      "booking_url": "https://flight.eztravel.com.tw/tickets-multicity-KIX-TPE/?dcity1=KIX&acity1=TPE&date1=03%2F03%2F2027&dport1=KIX&aport1=TPE&dcity2=TPE&acity2=CHC&date2=03%2F04%2F2027&dport2=TPE&aport2=CHC&dcity3=ZQN&acity3=TPE&date3=15%2F04%2F2027&dport3=ZQN&aport3=TPE&dcity4=TPE&acity4=KIX&date4=30%2F04%2F2027&dport4=TPE&aport4=KIX&adults=1&children=0&infants=0&direct=false&cabintype=any",
       "error": null
     }
   ]
