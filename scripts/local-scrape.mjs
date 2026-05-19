@@ -37,6 +37,104 @@ function buildOneWayUrl(from, to, date, cabin) {
   return `https://flight.eztravel.com.tw/tickets-multicity-${f}-${t}/?dcity1=${f}&acity1=${t}&date1=${fmtEzDate(date)}&dport1=${f}&aport1=${t}&adults=1&children=0&infants=0&direct=false&cabintype=${cabin === 'business' ? 'business' : 'any'}`;
 }
 
+// ============================================================
+// Trip.com mobile multi-city URL + scraper
+// ============================================================
+function buildTripMobileUrl(segs, cabin) {
+  // cabin: 0=經濟、1=豪華經濟、2=商務、3=頭等
+  const cabinCode = cabin === 'business' ? 2 : 0;
+  const p = new URLSearchParams();
+  segs.forEach((s, i) => {
+    const idx = i === 0 ? '' : String(i);  // 0-based: seg1=no suffix, seg2=1, seg3=2, seg4=3
+    p.set(`dcitycode${idx}`, s.from.toUpperCase());
+    p.set(`acitycode${idx}`, s.to.toUpperCase());
+    p.set(`ddate${idx}`, s.date);
+  });
+  p.set('segs', String(segs.length));
+  p.set('triptype', '2');           // multi-city
+  p.set('classtype', String(cabinCode));
+  p.set('classgroupsearch', 'true');
+  p.set('adult', '1');
+  p.set('from', 'flighthome');
+  p.set('locale', 'zh-tw');
+  p.set('curr', 'TWD');
+  return `https://tw.trip.com/m/flights/flightfirst/?${p}`;
+}
+
+async function createTripContext(browser) {
+  // Trip.com mobile uses wholetext attribute for prices (anti-scrape).
+  // Mobile UA + small viewport triggers the mobile flightfirst page which shows bundle totals.
+  return browser.newContext({
+    viewport: { width: 414, height: 896 },
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+    locale: 'zh-TW',
+  });
+}
+
+async function scrapeTrip(ctx, segments, cabin) {
+  const url = buildTripMobileUrl(segments, cabin);
+  const page = await ctx.newPage();
+  const t0 = Date.now();
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    // Wait up to 25s for prices to render
+    let waited = 0;
+    let foundPrice = false;
+    while (waited < 25000) {
+      foundPrice = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll('[wholetext]')).some((el) =>
+          /TWD[\d,]+/.test(el.getAttribute('wholetext') || '')
+        );
+      });
+      if (foundPrice) break;
+      await page.waitForTimeout(1000);
+      waited += 1000;
+    }
+    if (!foundPrice) {
+      return { ok: true, source: 'trip.com', prices: [], url, durationMs: Date.now() - t0 };
+    }
+    // Extract prices from wholetext attributes (Trip.com renders price text via image-like span)
+    const airlines = await page.evaluate(() => {
+      const out = [];
+      const seen = new Set();
+      const ailineRe = /(長榮航空|中華航空|大韓航空|樂桃|星宇|台灣虎航|酷航|越南航空|泰國航空|新加坡航空|國泰航空|日本航空|全日空|菲律賓航空|印尼鷹航|馬航|阿聯酋|卡達航空|土耳其航空|澳洲航空|紐西蘭航空|香港航空|澳門航空|海南航空|立榮航空|華信航空|聯合航空|達美航空|美國航空|加拿大航空|韓亞航空|濟州航空)/;
+      document.querySelectorAll('[wholetext]').forEach((el) => {
+        const raw = el.getAttribute('wholetext') || '';
+        const m = raw.match(/TWD([\d,]+)/);
+        if (!m) return;
+        const p = parseInt(m[1].replace(/,/g, ''), 10);
+        if (p < 5000 || p > 500000) return;
+        if (seen.has(p)) return;
+        seen.add(p);
+        // Find airline name in same card
+        let card = el.closest('div, li, article');
+        let airline = '';
+        let depth = 0;
+        while (card && depth < 5) {
+          const txt = card.innerText || '';
+          const am = txt.match(ailineRe);
+          if (am) { airline = am[1]; break; }
+          card = card.parentElement;
+          depth++;
+        }
+        out.push({ airline: airline || '?', price: p });
+      });
+      return out.sort((a, b) => a.price - b.price);
+    });
+    return {
+      ok: true,
+      source: 'trip.com',
+      prices: airlines,
+      url,
+      durationMs: Date.now() - t0,
+    };
+  } catch (e) {
+    return { ok: false, source: 'trip.com', error: e.message?.slice(0, 200) || String(e), url, durationMs: Date.now() - t0 };
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
 async function createWarmContext(browser) {
   // eztravel sits behind Imperva Incapsula; the result URLs are blocked
   // until we visit the homepage and let the JS anti-bot challenge set
@@ -156,31 +254,48 @@ async function main() {
   let completed = 0;
   const started = Date.now();
 
-  // Worker pool. Each worker holds its own warmed context — visiting the
-  // homepage once at startup lets Incapsula set anti-bot cookies that the
-  // result URLs need.
+  // Worker pool. Each worker holds 2 contexts: eztravel (warmed for Incapsula)
+  // and trip.com mobile (no warm-up needed). Per task, scrape both sources
+  // sequentially and emit 2 JSONL lines (one per source).
   const queue = [...tasks];
   const workers = Array.from({ length: concurrency }, async (_, w) => {
-    let ctx;
+    let ezCtx, tripCtx;
     try {
-      ctx = await createWarmContext(browser);
+      ezCtx = await createWarmContext(browser);
+      tripCtx = await createTripContext(browser);
     } catch (e) {
-      console.error(`[w${w}] failed to warm context: ${e.message}`);
+      console.error(`[w${w}] failed to warm contexts: ${e.message}`);
       return;
     }
     while (queue.length) {
       const task = queue.shift();
       if (!task) break;
+      // 1. eztravel
       const t0 = Date.now();
       try {
-        const result = await scrapeOne(ctx, task.segments, task.cabin);
+        const result = await scrapeOne(ezCtx, task.segments, task.cabin);
+        appendFileSync(output, JSON.stringify({ ...task, source: 'eztravel', ...result }) + '\n');
+      } catch (e) {
+        appendFileSync(output, JSON.stringify({
+          ...task,
+          source: 'eztravel',
+          ok: false,
+          error: String(e).slice(0, 200),
+          durationMs: Date.now() - t0,
+        }) + '\n');
+      }
+      // 2. trip.com
+      const t1 = Date.now();
+      try {
+        const result = await scrapeTrip(tripCtx, task.segments, task.cabin);
         appendFileSync(output, JSON.stringify({ ...task, ...result }) + '\n');
       } catch (e) {
         appendFileSync(output, JSON.stringify({
           ...task,
+          source: 'trip.com',
           ok: false,
           error: String(e).slice(0, 200),
-          durationMs: Date.now() - t0,
+          durationMs: Date.now() - t1,
         }) + '\n');
       }
       completed++;
@@ -191,7 +306,8 @@ async function main() {
         console.error(`[w${w}] ${completed}/${tasks.length} elapsed=${elapsed}s eta=${eta}s rate=${rate.toFixed(2)}/s`);
       }
     }
-    await ctx.close().catch(() => {});
+    await ezCtx.close().catch(() => {});
+    await tripCtx.close().catch(() => {});
   });
 
   await Promise.all(workers);

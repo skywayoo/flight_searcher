@@ -1,8 +1,10 @@
 # Flight Searcher
 
-> 易遊網多段機票價格監控與比價工具
+> 多平台機票價格監控與比價工具（**eztravel + Trip.com 雙來源**）
 
 支援外站四段票（外站→TPE→NZ→NZ→TPE→外站）的 cartesian 機場 + 日期組合搜尋，預算過濾，命中時 Telegram 即時通知 + Notion 紀錄 + GitHub Pages 公開報告。
+
+**v2 (2026-05)：** 每個 task 同時 scrape eztravel 跟 Trip.com 兩個平台，每個來源獨立判定 in-budget 並 ping Telegram（不再是「新最低價才通知」）。
 
 ---
 
@@ -17,16 +19,21 @@
 │     ├─► 2. cartesian 展開每個 target → JSONL              │
 │     │                                                     │
 │     ├─► local-scrape.mjs(playwright-core + 本機 chromium) │
-│     │      ├── 每 worker 有自己 warm context (過 Incapsula)│
-│     │      ├── 跑 6 workers 平行,~5s/scrape                │
-│     │      └── 結果寫 JSONL                                │
+│     │      ├── 每 worker 有 2 個 context:                  │
+│     │      │   • ezCtx (desktop UA, Incapsula warmed)      │
+│     │      │   • tripCtx (mobile UA, flightfirst page)    │
+│     │      ├── 每 task scrape 兩個來源,輸出 2 行 JSONL    │
+│     │      ├── 跑 4 workers 平行,~10s/scrape              │
+│     │      └── 結果寫 JSONL (含 source 欄位)              │
 │     │                                                     │
 │     └─► 結束時:寫 Notion FlightResults + Telegram 總結    │
 │                                                           │
 │  watch-hits.py  (tailer, 邊跑邊看)                        │
 │     ├── 即時讀 JSONL,每筆新命中(在預算內):                │
-│     ├── 響鈴 Telegram(新最低價)                           │
-│     ├── 寫 Notion FlightResults                            │
+│     ├── 響鈴 Telegram(per-source,每筆 in-budget 都通知)   │
+│     │      • 🎫 EZ {價格} = eztravel hit                  │
+│     │      • ✈️ Trip {價格} = trip.com hit                 │
+│     ├── 寫 Notion FlightResults (含 source)                │
 │     ├── 寫本機 SQLite scrape_results                       │
 │     └── (可選)定期重生 docs/ + push GH Pages              │
 │                                                           │
@@ -46,7 +53,7 @@
 │  Flight Results DB(掃描命中時寫入)                       │
 │    ├ Name / TargetId                                       │
 │    ├ ScrapeDate / CheapestPrice / Top5                     │
-│    └ Source(select: eztravel)                             │
+│    └ Source(select: eztravel | trip.com)                  │
 │                                                           │
 └───────────────────────────────────────────────────────────┘
                               ↑

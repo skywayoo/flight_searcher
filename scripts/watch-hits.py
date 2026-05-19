@@ -193,12 +193,15 @@ def main():
                 if cheapest > cap:
                     continue
                 tname = r.get("target_name", "?")
-                key = (tname, cabin, r.get("out1"), r.get("out4"))
+                source = r.get("source", "eztravel")
+                # Dedup by (target, cabin, out1, out4, source) — same combo from
+                # different sources counts as separate hits.
+                key = (tname, cabin, r.get("out1"), r.get("out4"), source)
                 if key in seen:
                     continue
                 seen.add(key)
-                # Write SQLite + Notion + Telegram for EVERY new (out1, out4) combo
-                # under budget (no "new-best" filter).
+                # Write SQLite + Notion + Telegram for EVERY new (out1, out4, source)
+                # combo under budget (no "new-best" filter).
                 sqlite_insert_hit(conn, r)
                 target_id = r.get("target_id", "")
                 notion_upsert_result(env, target_id, tname, r)
@@ -206,8 +209,9 @@ def main():
                 prev = best_by_target.get((tname, cabin), 10**9)
                 if cheapest < prev:
                     best_by_target[(tname, cabin)] = cheapest
+                source_tag = "✈️ Trip" if source == "trip.com" else "🎫 EZ"
                 msg = (
-                    f"💰 {cabin} {cheapest:,} ｜ {tname}\n"
+                    f"💰 {source_tag} {cabin} {cheapest:,} ｜ {tname}\n"
                     f"{r.get('out1')}→TPE→…→{r.get('out4')} ({prices[0]['airline']})\n"
                     f"{r.get('url','')}"
                 )
