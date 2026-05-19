@@ -1,7 +1,50 @@
 @import "tailwindcss";
 
+/* Tailwind v4: enable `.dark` class as the dark-variant trigger on <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #ffffff;
+  --foreground: #0f1419;
+  --surface: #f9fafb;
+  --surface-2: #f3f4f6;
+  --border: #d1d5db;
+  --muted: #6b7280;
+  --accent: #2563eb;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --surface: #111827;
+  --surface-2: #1f2937;
+  --border: #374151;
+  --muted: #9ca3af;
+  --accent: #3b82f6;
+}
+
 body {
-  background: #0a0a0a;
-  color: #ededed;
+  background: var(--background);
+  color: var(--foreground);
   font-family: -apple-system, BlinkMacSystemFont, "Microsoft JhengHei", "PingFang TC", sans-serif;
 }
+
+/* Light-mode overrides for the dark Tailwind palette used throughout the app.
+   When `.dark` is absent (light mode), the page's hard-coded `bg-gray-9xx`
+   / `text-white` / `text-gray-3xx-5xx` classes get swapped for light equivalents.
+   This avoids refactoring every file while still giving a true light theme. */
+html:not(.dark) .bg-gray-950 { background-color: #ffffff !important; }
+html:not(.dark) .bg-gray-900 { background-color: #f3f4f6 !important; }
+html:not(.dark) .bg-gray-900\/50 { background-color: rgba(243,244,246,0.6) !important; }
+html:not(.dark) .bg-gray-900\/95 { background-color: rgba(255,255,255,0.95) !important; }
+html:not(.dark) .bg-gray-800 { background-color: #e5e7eb !important; }
+html:not(.dark) .bg-gray-950\/95 { background-color: rgba(255,255,255,0.95) !important; }
+html:not(.dark) .border-gray-800 { border-color: #d1d5db !important; }
+html:not(.dark) .border-gray-700 { border-color: #d1d5db !important; }
+html:not(.dark) .text-white { color: #0f1419 !important; }
+html:not(.dark) .text-gray-100 { color: #111827 !important; }
+html:not(.dark) .text-gray-200 { color: #1f2937 !important; }
+html:not(.dark) .text-gray-300 { color: #374151 !important; }
+html:not(.dark) .text-gray-400 { color: #4b5563 !important; }
+html:not(.dark) .text-gray-500 { color: #6b7280 !important; }
+html:not(.dark) .text-gray-600 { color: #9ca3af !important; }

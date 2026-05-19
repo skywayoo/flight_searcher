@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { getFlightTargets, getAllResultsLatest } from '@/lib/notion';
 import { REGIONS } from '@/lib/regions';
+import ThemeToggle from '@/components/ThemeToggle';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -45,12 +46,15 @@ export default async function Home() {
       <header className="sticky top-0 z-10 bg-gray-950/95 backdrop-blur border-b border-gray-800">
         <div className="flex items-center justify-between px-4 py-3">
           <h1 className="text-lg font-semibold">機票監控</h1>
-          <Link
-            href="/targets/new"
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500"
-          >
-            + 新增目標
-          </Link>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Link
+              href="/targets/new"
+              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500"
+            >
+              + 新增目標
+            </Link>
+          </div>
         </div>
       </header>
 
