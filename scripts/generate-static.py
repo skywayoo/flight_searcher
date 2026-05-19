@@ -53,6 +53,8 @@ HTML = """<!doctype html>
   .b-econ { background: #053; color: #6f6; }
   .b-biz  { background: #503; color: #f6c; }
   .b-hit  { background: #c80; color: #000; font-weight: 600; }
+  .b-ez   { background: #5a3a00; color: #fbbf24; }
+  .b-trip { background: #003a4d; color: #5dd4f5; }
   .stats { font-size: 11px; color: #666; margin-bottom: 12px; }
   .empty { color: #666; text-align: center; padding: 32px; }
 </style>
@@ -109,11 +111,15 @@ function render() {
     const isHit = r.cheapest_price <= cap;
     const cabinBadge = r.cabin === 'economy' ? '<span class="badge b-econ">經濟</span>' : '<span class="badge b-biz">商務</span>';
     const hitBadge = isHit ? '<span class="badge b-hit">HIT</span>' : '';
+    const isTrip = (r.booking_url || '').includes('trip.com');
+    const srcBadge = isTrip
+      ? '<span class="badge b-trip">✈️ Trip</span>'
+      : '<span class="badge b-ez">🎫 EZ</span>';
     const dates = `${r.seg1_date} → ZQN ${r.seg2_date} · ${r.seg3_date} → ${r.out4} ${r.seg4_date}`;
     return `<a class="card" href="${r.booking_url}" target="_blank" rel="noopener">
       <div class="top">
         <div>
-          <div class="name">${cabinBadge}${hitBadge}${r.out1}-ZQN-TPE-${r.out4}</div>
+          <div class="name">${srcBadge}${cabinBadge}${hitBadge}${r.out1}-ZQN-TPE-${r.out4}</div>
           <div class="sub">${dates}</div>
         </div>
         <div class="price">$${fmt(r.cheapest_price)}</div>

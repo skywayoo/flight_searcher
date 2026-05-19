@@ -55,9 +55,9 @@ export interface FlightCombination {
   cabin: 'economy' | 'business';
   segments: FlightSegment[];
   weekdayDays: number;         // count of weekdays in trip (Mon-Fri)
-  source: 'eztravel';
+  source: 'eztravel' | 'trip.com' | 'mixed';
   bookingUrl?: string;
-  bookingUrls?: { eztravel?: string };
+  bookingUrls?: { eztravel?: string; trip?: string };
 }
 
 export interface FlightSegment {
@@ -79,6 +79,6 @@ export interface FlightResult {
   top5: FlightCombination[];
   prevCheapestPrice?: number;
   changePct?: number;
-  source: 'eztravel';
+  source: 'eztravel' | 'trip.com' | 'mixed';
   scrapeDurationMs?: number;
 }

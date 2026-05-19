@@ -97,13 +97,14 @@ def notion_upsert_result(env, target_id, target_name, r):
         "returnDate": segs[3]["date"],
         "bookingUrl": r.get("url", ""),
     } for p in r["prices"][:5]]
+    src = r.get("source", "eztravel")
     props = {
         "Name": {"title": [{"text": {"content": target_name}}]},
         "TargetId": {"rich_text": [{"text": {"content": target_id}}]},
         "ScrapeDate": {"date": {"start": today}},
         "CheapestPrice": {"number": r["prices"][0]["price"]},
         "Top5": {"rich_text": [{"text": {"content": (json.dumps(top5, ensure_ascii=False) + "\n" + route)[:1900]}}]},
-        "Source": {"select": {"name": "eztravel"}},
+        "Source": {"select": {"name": src}},
     }
     req = urllib.request.Request(
         "https://api.notion.com/v1/pages",

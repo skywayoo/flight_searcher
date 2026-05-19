@@ -24,6 +24,9 @@ export default async function TargetDetail({ params }: { params: Promise<{ id: s
 
   const results = await getFlightResults(id, 90);
   const latest = results[0];
+  // Latest per source for the side-by-side compare card.
+  const latestEz = results.find((r) => r.source === 'eztravel');
+  const latestTrip = results.find((r) => r.source === 'trip.com');
 
   return (
     <div>
@@ -93,21 +96,52 @@ export default async function TargetDetail({ params }: { params: Promise<{ id: s
 
         <TargetActions targetId={target.id} status={target.status} />
 
-        {/* Latest result */}
+        {/* Latest result — per source side-by-side */}
+        {(latestEz || latestTrip) ? (
+          <div className="grid grid-cols-2 gap-2">
+            {(['eztravel', 'trip.com'] as const).map((src) => {
+              const r = src === 'eztravel' ? latestEz : latestTrip;
+              const label = src === 'eztravel' ? '🎫 易遊網' : '✈️ Trip.com';
+              const accent = src === 'eztravel' ? 'border-orange-700/40' : 'border-cyan-700/40';
+              if (!r) {
+                return (
+                  <div key={src} className={`rounded-xl bg-gray-900/50 p-4 border ${accent}`}>
+                    <p className="text-xs text-gray-500">{label}</p>
+                    <p className="text-sm text-gray-600 mt-2">尚無資料</p>
+                  </div>
+                );
+              }
+              const top = r.top5[0];
+              const bookingUrl = top?.bookingUrls?.eztravel || top?.bookingUrls?.trip || top?.bookingUrl;
+              return (
+                <div key={src} className={`rounded-xl bg-gray-900 p-4 border ${accent}`}>
+                  <p className="text-xs text-gray-400 mb-1">{label}</p>
+                  <p className="text-2xl font-bold text-white">${fmt(r.cheapestPrice)}</p>
+                  <p className="text-[10px] text-gray-500 mt-1">{r.scrapeDate}</p>
+                  {r.changePct !== undefined && Math.abs(r.changePct) > 0.001 && (
+                    <p className={`text-[10px] mt-0.5 ${r.changePct < 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {r.changePct > 0 ? '↑' : '↓'} {(Math.abs(r.changePct) * 100).toFixed(1)}%
+                    </p>
+                  )}
+                  {bookingUrl && (
+                    <a
+                      href={bookingUrl}
+                      target="_blank"
+                      rel="noopener"
+                      className="block text-center rounded-md bg-green-600/20 border border-green-600/40 mt-2 py-1 text-[11px] text-green-300 hover:bg-green-600/30"
+                    >
+                      訂購 →
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {/* Combined cheapest line + top results below */}
         {latest && latest.top5.length > 0 ? (
           <>
-            <div className="rounded-xl bg-gray-900 p-4">
-              <p className="text-xs text-gray-400 mb-1">最新最低價（{latest.scrapeDate}）</p>
-              <p className="text-3xl font-bold text-white">${fmt(latest.cheapestPrice)}</p>
-              {latest.changePct !== undefined && Math.abs(latest.changePct) > 0.001 && (
-                <p className={`text-sm mt-1 ${latest.changePct < 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {latest.changePct > 0 ? '↑' : '↓'} {(Math.abs(latest.changePct) * 100).toFixed(1)}%
-                  {latest.prevCheapestPrice && (
-                    <span className="text-gray-500 ml-2">(上次 ${fmt(latest.prevCheapestPrice)})</span>
-                  )}
-                </p>
-              )}
-            </div>
 
             {/* Top combinations */}
             {(['economy', 'business'] as const).map((cabin) => {
@@ -144,14 +178,14 @@ export default async function TargetDetail({ params }: { params: Promise<{ id: s
                           </div>
                           <p className="text-lg font-bold text-white shrink-0">${fmt(c.totalPrice)}</p>
                         </div>
-                        {(c.bookingUrls?.eztravel || c.bookingUrl) && (
+                        {(c.bookingUrls?.eztravel || c.bookingUrls?.trip || c.bookingUrl) && (
                           <a
-                            href={c.bookingUrls?.eztravel || c.bookingUrl}
+                            href={c.bookingUrls?.eztravel || c.bookingUrls?.trip || c.bookingUrl}
                             target="_blank"
                             rel="noopener"
                             className="block text-center rounded-lg bg-green-600/20 border border-green-600/40 py-1.5 text-xs text-green-300 hover:bg-green-600/30"
                           >
-                            到易遊網訂購 →
+                            到{latest.source === 'trip.com' ? ' Trip.com' : '易遊網'}訂購 →
                           </a>
                         )}
                       </div>

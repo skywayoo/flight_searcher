@@ -249,17 +249,37 @@ function chunkText(s: string, size = 1900): { text: { content: string } }[] {
  * targetId → latest valid (cheapestPrice > 0) entry. ONE paginated query
  * total (instead of N+1 per target).
  */
-export async function getAllResultsLatest(): Promise<Record<string, { price: number; date: string; changePct?: number; out1?: string; out4?: string; airline?: string; bookingUrl?: string }>> {
+export type LatestPerSource = {
+  price: number;
+  date: string;
+  changePct?: number;
+  out1?: string;
+  out4?: string;
+  airline?: string;
+  bookingUrl?: string;
+  source: 'eztravel' | 'trip.com';
+};
+
+export type TargetLatest = {
+  eztravel?: LatestPerSource;
+  trip?: LatestPerSource;
+  /** Convenience: cheapest of all available sources (legacy single-price callers). */
+  cheapest?: LatestPerSource;
+};
+
+export async function getAllResultsLatest(): Promise<Record<string, TargetLatest>> {
   const r = await queryDB(DB.RESULTS, {
     sorts: [{ property: 'ScrapeDate', direction: 'descending' }],
   });
-  const out: Record<string, { price: number; date: string; changePct?: number; out1?: string; out4?: string; airline?: string; bookingUrl?: string }> = {};
+  const out: Record<string, TargetLatest> = {};
   for (const p of r.results) {
     const tid = getRich(p, 'TargetId');
     if (!tid) continue;
     const cp = getNum(p, 'CheapestPrice');
     if (cp <= 0) continue;
-    // Pull the cheapest Top5 entry — homepage uses it for compact "ICN→ZQN→TPE→ICN" preview
+    const source = (getSelect(p, 'Source') || 'eztravel') as 'eztravel' | 'trip.com';
+    const key: 'eztravel' | 'trip' = source === 'trip.com' ? 'trip' : 'eztravel';
+    // Pull the cheapest Top5 entry — for compact "ICN→ZQN→TPE→ICN" preview
     let out1: string | undefined;
     let out4: string | undefined;
     let airline: string | undefined;
@@ -276,14 +296,20 @@ export async function getAllResultsLatest(): Promise<Record<string, { price: num
         bookingUrl = arr[0].bookingUrl;
       }
     } catch { /* ignore */ }
-    // Keep the first (cheapest) we see per target
-    if (out[tid]) continue;
-    out[tid] = {
+    const entry: LatestPerSource = {
       price: cp,
       date: getDate(p, 'ScrapeDate'),
       changePct: getNum(p, 'ChangePct') || undefined,
       out1, out4, airline, bookingUrl,
+      source,
     };
+    if (!out[tid]) out[tid] = {};
+    // Keep latest (first seen due to date-desc sort) per source per target
+    if (!out[tid][key]) out[tid][key] = entry;
+    // Update cheapest convenience field
+    if (!out[tid].cheapest || cp < out[tid].cheapest!.price) {
+      out[tid].cheapest = entry;
+    }
   }
   return out;
 }

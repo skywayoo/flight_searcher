@@ -22,21 +22,23 @@ export default async function Home() {
     getAllResultsLatest(),
   ]);
 
-  // Sort targets: hits first (by cheapest price asc), then non-hits
+  // Sort targets: hits first (by cheapest of any source asc), then non-hits
   const enriched = targets.map((t) => ({
     target: t,
     latest: latestByTarget[t.id] ?? null,
   }));
   enriched.sort((a, b) => {
-    const aHas = a.latest && a.latest.price > 0 ? 1 : 0;
-    const bHas = b.latest && b.latest.price > 0 ? 1 : 0;
+    const aPrice = a.latest?.cheapest?.price ?? 0;
+    const bPrice = b.latest?.cheapest?.price ?? 0;
+    const aHas = aPrice > 0 ? 1 : 0;
+    const bHas = bPrice > 0 ? 1 : 0;
     if (aHas !== bHas) return bHas - aHas;
-    if (aHas) return (a.latest!.price) - (b.latest!.price);
+    if (aHas) return aPrice - bPrice;
     return a.target.name.localeCompare(b.target.name);
   });
 
-  const hits = enriched.filter((e) => e.latest && e.latest.price > 0);
-  const noHits = enriched.filter((e) => !e.latest || e.latest.price === 0);
+  const hits = enriched.filter((e) => e.latest?.cheapest && e.latest.cheapest.price > 0);
+  const noHits = enriched.filter((e) => !e.latest?.cheapest || e.latest.cheapest.price === 0);
 
   return (
     <div>
@@ -127,17 +129,20 @@ function compactRoute(t: { segments?: SegSpec[] }, latest: { out1?: string; out4
   return null;
 }
 
+type SourceLatest = { price: number; date: string; changePct?: number; out1?: string; out4?: string; airline?: string; bookingUrl?: string; source: 'eztravel' | 'trip.com' };
+
 function TargetCard({
   target: t,
   latest,
 }: {
   target: { id: string; name: string; tripType: string; departureAirport: string; region: string; destinationAirports: string[]; segments?: SegSpec[]; outboundStart: string; outboundEnd: string; tripLengthMin?: number; tripLengthMax?: number; status: string };
-  latest: { price: number; date: string; changePct?: number; out1?: string; out4?: string; airline?: string; bookingUrl?: string };
+  latest: { eztravel?: SourceLatest; trip?: SourceLatest; cheapest?: SourceLatest };
 }) {
   const regionLabel = REGIONS[t.region]?.label || t.region;
   const isPaused = t.status === 'paused';
   const isMulti = t.tripType === 'multi_city_4';
-  const compact = isMulti ? compactRoute(t, latest) : null;
+  const refSource = latest.cheapest ?? latest.eztravel ?? latest.trip;
+  const compact = isMulti && refSource ? compactRoute(t, refSource) : null;
   const seg = isMulti ? segLine(t.segments) : null;
   return (
     <Link
@@ -155,9 +160,9 @@ function TargetCard({
             <span className="shrink-0 inline-block rounded bg-blue-900/40 px-1.5 py-0.5 text-[10px] font-medium text-blue-300">
               {TRIP_TYPE_LABEL[t.tripType]}
             </span>
-            {latest.airline && (
+            {refSource?.airline && (
               <span className="shrink-0 inline-block rounded bg-orange-900/30 px-1.5 py-0.5 text-[10px] text-orange-300">
-                {latest.airline}
+                {refSource.airline}
               </span>
             )}
           </div>
@@ -175,14 +180,20 @@ function TargetCard({
             </p>
           )}
         </div>
-        <div className="text-right shrink-0">
-          <p className="text-lg font-bold text-white">${fmt(latest.price)}</p>
-          {latest.changePct !== undefined && Math.abs(latest.changePct) > 0.001 && (
-            <p className={`text-xs ${latest.changePct < 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {latest.changePct > 0 ? '+' : ''}{(latest.changePct * 100).toFixed(1)}%
-            </p>
+        <div className="text-right shrink-0 space-y-0.5">
+          {latest.eztravel && (
+            <div className="flex items-center justify-end gap-1.5">
+              <span className="text-[10px] text-orange-300">🎫EZ</span>
+              <span className="text-sm font-bold text-white">${fmt(latest.eztravel.price)}</span>
+            </div>
           )}
-          <p className="text-xs text-gray-500 mt-0.5">{latest.date}</p>
+          {latest.trip && (
+            <div className="flex items-center justify-end gap-1.5">
+              <span className="text-[10px] text-cyan-300">✈️Trip</span>
+              <span className="text-sm font-bold text-white">${fmt(latest.trip.price)}</span>
+            </div>
+          )}
+          <p className="text-[10px] text-gray-500 mt-0.5">{refSource?.date}</p>
         </div>
       </div>
     </Link>
