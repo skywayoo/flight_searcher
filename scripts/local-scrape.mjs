@@ -258,11 +258,20 @@ async function main() {
   // and trip.com mobile (no warm-up needed). Per task, scrape both sources
   // sequentially and emit 2 JSONL lines (one per source).
   const queue = [...tasks];
+  // Rotate contexts every CONTEXT_ROTATE tasks to avoid Node heap OOM —
+  // playwright contexts accumulate cookies/storage/listeners that the V8 GC
+  // can't reclaim between page.close() calls. Previously crashed at ~1620
+  // tasks/worker × 4 workers with 'Ineffective mark-compacts near heap limit'.
+  const CONTEXT_ROTATE = parseInt(process.env.CONTEXT_ROTATE || '150', 10);
   const workers = Array.from({ length: concurrency }, async (_, w) => {
     let ezCtx, tripCtx;
-    try {
+    let sinceRotate = 0;
+    async function makeContexts() {
       ezCtx = await createWarmContext(browser);
       tripCtx = await createTripContext(browser);
+    }
+    try {
+      await makeContexts();
     } catch (e) {
       console.error(`[w${w}] failed to warm contexts: ${e.message}`);
       return;
@@ -270,6 +279,19 @@ async function main() {
     while (queue.length) {
       const task = queue.shift();
       if (!task) break;
+      if (sinceRotate >= CONTEXT_ROTATE) {
+        // Recycle contexts to free memory before next batch.
+        await ezCtx.close().catch(() => {});
+        await tripCtx.close().catch(() => {});
+        try {
+          await makeContexts();
+        } catch (e) {
+          console.error(`[w${w}] context rotate failed: ${e.message}`);
+          break;
+        }
+        sinceRotate = 0;
+        if (global.gc) global.gc();
+      }
       // 1. eztravel
       const t0 = Date.now();
       try {
@@ -299,11 +321,15 @@ async function main() {
         }) + '\n');
       }
       completed++;
+      sinceRotate++;
       if (completed % 10 === 0 || completed === tasks.length) {
         const elapsed = Math.floor((Date.now() - started) / 1000);
         const rate = completed / elapsed;
         const eta = Math.floor((tasks.length - completed) / rate);
-        console.error(`[w${w}] ${completed}/${tasks.length} elapsed=${elapsed}s eta=${eta}s rate=${rate.toFixed(2)}/s`);
+        const mem = process.memoryUsage();
+        const rssMb = Math.round(mem.rss / 1024 / 1024);
+        const heapMb = Math.round(mem.heapUsed / 1024 / 1024);
+        console.error(`[w${w}] ${completed}/${tasks.length} elapsed=${elapsed}s eta=${eta}s rate=${rate.toFixed(2)}/s rss=${rssMb}MB heap=${heapMb}MB`);
       }
     }
     await ezCtx.close().catch(() => {});

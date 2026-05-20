@@ -143,7 +143,7 @@ def notify_telegram(env, msg, silent=False):
     notify.send(env, msg, silent=silent)
 
 
-def notion_create_result(token, db, target_id, target_name, cheapest, scrape_date, top5, cabin, source_url):
+def notion_create_result(token, db, target_id, target_name, cheapest, scrape_date, top5, cabin, source_url, source="eztravel"):
     """Write a basic FlightResult row to Notion."""
     props = {
         "Name": {"title": [{"text": {"content": target_name}}]},
@@ -151,7 +151,7 @@ def notion_create_result(token, db, target_id, target_name, cheapest, scrape_dat
         "ScrapeDate": {"date": {"start": scrape_date}},
         "CheapestPrice": {"number": cheapest},
         "Top5": {"rich_text": [{"text": {"content": json.dumps(top5, ensure_ascii=False)[:1900]}}]},
-        "Source": {"select": {"name": "eztravel"}},
+        "Source": {"select": {"name": source}},
     }
     req = urllib.request.Request(
         "https://api.notion.com/v1/pages",
@@ -178,6 +178,8 @@ def main():
     ap.add_argument("--results-path", default="/tmp/flight-direct-results.jsonl")
     ap.add_argument("--dry-run", action="store_true", help="Build tasks and stop")
     ap.add_argument("--target-ids-file", help="JSON file with array of target IDs to limit scan to")
+    ap.add_argument("--silent-hits", action="store_true",
+                    help="Send per-hit Telegram with disable_notification=true (no sound). Final summary still pings.")
     args = ap.parse_args()
 
     env = load_env()
@@ -227,7 +229,7 @@ def main():
 
     Path(args.results_path).unlink(missing_ok=True)
 
-    notify_telegram(env, f"🚀 直接掃描開始：{len(targets)} target → {len(all_tasks)} scrape (conc {args.concurrency})")
+    notify_telegram(env, f"🚀 直接掃描開始：{len(targets)} target → {len(all_tasks)} task × 2 source (conc {args.concurrency})", silent=args.silent_hits)
 
     # Invoke local-scrape.mjs
     cmd = [
@@ -267,6 +269,7 @@ def main():
                 "airline": prices[0]["airline"],
                 "url": r.get("url", ""),
                 "all_prices": prices,
+                "source": r.get("source", "eztravel"),
             })
 
     # Per target+cabin pick cheapest within budget, notify + write Notion
@@ -286,20 +289,23 @@ def main():
         in_budget.sort(key=lambda e: e["cheapest"])
         best = in_budget[0]
         total_hits += 1
+        source_tag = "✈️ Trip" if best.get("source") == "trip.com" else "🎫 EZ"
         line = (
-            f"💰 {cabin} {best['cheapest']:,} ｜ {target['name']} ｜ "
+            f"💰 {source_tag} {cabin} {best['cheapest']:,} ｜ {target['name']} ｜ "
             f"{best['out1']}→TPE→…→{best['out4']} ({best['airline']})"
         )
         summaries.append(line)
-        notify_telegram(env, line + (f"\n{best['url']}" if best.get("url") else ""))
+        notify_telegram(env, line + (f"\n{best['url']}" if best.get("url") else ""), silent=args.silent_hits)
         # Write to Notion (best-effort)
         top5 = in_budget[:5]
         top5_compact = [{
             "out1": e["out1"], "out4": e["out4"],
             "price": e["cheapest"], "airline": e["airline"],
+            "source": e.get("source", "eztravel"),
         } for e in top5]
         notion_create_result(token, results_db, target_id, target["name"],
-                             best["cheapest"], today, top5_compact, cabin, best["url"])
+                             best["cheapest"], today, top5_compact, cabin, best["url"],
+                             source=best.get("source", "eztravel"))
 
     final = (
         f"🏁 直接掃描完成 {elapsed//60}m{elapsed%60}s ｜ "
