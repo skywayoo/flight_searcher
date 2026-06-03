@@ -8,6 +8,163 @@
 
 ---
 
+## 🎒 同事簡易用法（純 JSON、不用 Notion、不用 SQLite）
+
+如果只想自己用、不想設 Notion / 不想跑 GitHub Pages，這條路最快：
+
+### 1. 一次性安裝
+
+```bash
+# 1a. 裝 Node 20 (Mac/brew)
+brew install node@20
+
+# 1b. clone 並裝相依
+git clone https://github.com/skywayoo/flight_searcher.git
+cd flight_searcher
+npm install                              # playwright-core 等
+npx playwright install chromium          # 下載瀏覽器 (~150 MB)
+```
+
+> Python 3.8+ 也要有（macOS 內建即可）。
+
+### 2. 改一份你自己的目標清單
+
+```bash
+cp data/example-targets.json data/my-targets.json
+# 用編輯器打開 data/my-targets.json 改成你想找的航線
+```
+
+**目標檔格式（每段都支援多機場 + 日期區間）：**
+
+```json
+[
+  {
+    "name": "東京 暑假來回",
+    "trip_type": "round_trip",
+    "segments": [
+      {
+        "from": ["TPE", "TSA"],
+        "to": ["NRT", "HND"],
+        "date_range": { "start": "2026-08-01", "end": "2026-08-03" }
+      },
+      {
+        "from": ["NRT", "HND"],
+        "to": ["TPE", "TSA"],
+        "date_range": { "start": "2026-08-08", "end": "2026-08-10" }
+      }
+    ],
+    "budget": { "economy": 18000, "business": 60000 },
+    "include_business": false
+  }
+]
+```
+
+欄位解釋：
+
+| 欄位 | 說明 |
+|------|------|
+| `name` | 目標名稱（顯示用） |
+| `trip_type` | `one_way` / `round_trip` / `multi_city` 純標示用，不影響搜尋邏輯 |
+| `segments[].from` | **陣列**，可放多個出發機場（會 cartesian 展開） |
+| `segments[].to` | **陣列**，可放多個目的機場 |
+| `segments[].date_range` | `{ start, end }` 含頭含尾的日期區間（會展開每一天） |
+| `budget.economy` / `business` | 經濟艙 / 商務艙各別預算（NTD），超過會被過濾掉 |
+| `include_business` | 是否額外搜商務艙 |
+
+> ⚠️ 範圍大就會爆量：`2 from × 2 to × 3 dates × 2 from × 2 to × 3 dates = 144 tasks`。每 task 跑 ~10s × 2 來源、4 workers 平行 ≈ 6 分鐘。建議第一次跑前先 `--dry-run` 看任務數。
+
+### 3. 四段票範例（外站票常見格式）
+
+`data/example-targets.json` 內附「外站四段票 紐西蘭」範例：
+
+```
+BKK/KUL → TPE  (12/20–12/22)
+TPE → ZQN/CHC/AKL  (12/23–12/25)
+ZQN/CHC/AKL → TPE  (1/3–1/5)
+TPE → BKK/KUL  (1/6–1/8)
+```
+
+每段都能自由放多機場 + 日期區間，會 cartesian 展開所有組合（這個範例 ≈ 數千組）。
+
+### 4. 跑一次掃描
+
+```bash
+# 先看會展成多少 task（不會真的爬）
+NODE20=/opt/homebrew/Cellar/node@20/20.20.2/bin/node \
+python3 scripts/scan-json-only.py --dry-run
+
+# 真的跑（4 workers）
+NODE20=/opt/homebrew/Cellar/node@20/20.20.2/bin/node \
+python3 scripts/scan-json-only.py --concurrency 4
+```
+
+常用旗標：
+
+| 旗標 | 預設 | 說明 |
+|------|------|------|
+| `--targets PATH` | `data/my-targets.json` | 目標檔路徑 |
+| `--results PATH` | `data/results.json` | 結果檔路徑 |
+| `--concurrency N` | `4` | 平行 worker 數（建議 2–6） |
+| `--reset` | (off) | 覆蓋 `results.json`（預設是 append 新的一次 run） |
+| `--dry-run` | (off) | 只展開任務、不真的爬 |
+
+### 5. 看結果
+
+掃描完會印出每個目標的最便宜命中 + 寫入 `data/results.json`：
+
+```
+🎯 TEST 首爾 單程  (scanned 2 pages)
+   trip.com economy  $   6190  韓亞航空
+```
+
+`data/results.json` 結構是「歷次 run 的陣列」：
+
+```json
+[
+  {
+    "scan_at": "2026-05-31T11:48:44Z",
+    "targets": [
+      {
+        "name": "TEST 首爾 單程",
+        "budget": { "economy": 15000 },
+        "task_count": 1,
+        "scrape_count": 2,
+        "hits": [
+          {
+            "source": "trip.com",
+            "cabin": "economy",
+            "price": 6190,
+            "airline": "韓亞航空",
+            "url": "https://tw.trip.com/m/flights/...",
+            "segments": [ { "from": "TPE", "to": "ICN", "date": "2026-09-15" } ]
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
+### 6. （選用）Telegram 通知
+
+在專案根目錄建 `.env.local`：
+
+```
+TELEGRAM_BOT_TOKEN=123456:ABCDEF…
+TELEGRAM_CHAT_ID=12345678
+```
+
+每次 scan 完會推一則摘要訊息。沒設就略過、不會報錯。
+
+### 常見問題
+
+- **`Playwright requires Node.js 18 or higher`**：要顯式設 `NODE20` 指到 Node 20，例如 `NODE20=$(brew --prefix node@20)/bin/node python3 …`。
+- **沒抓到價格 (prices=0)**：通常是該路線/日期沒航班，或 eztravel 被 Incapsula 擋（trip.com 通常還能拿到）。試別組日期或加點機場 fallback。
+- **跑太慢**：拆掉一些機場或縮短日期區間。每多一個機場/日期都是乘法。
+- **不要用 Notion / SQLite**：JSON-only 路徑就是這個 `scan-json-only.py`、完全不會碰到 Notion / SQLite。
+
+---
+
 ## 🎯 整體架構
 
 ```
