@@ -1,7 +1,3 @@
 {
-  "functions": {
-    "app/api/scrape-direct/route.ts": { "memory": 2048, "maxDuration": 120 },
-    "app/api/admin/test-scrape/route.ts": { "memory": 2048, "maxDuration": 60 },
-    "app/api/targets/[id]/scan/route.ts": { "memory": 2048, "maxDuration": 300 }
-  }
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }

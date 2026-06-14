@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
+import { blockScrapeOnVercel } from '@/lib/guard';
 
 export const maxDuration = 60;
 
 export async function GET(req: Request) {
+  const blocked = blockScrapeOnVercel();
+  if (blocked) return blocked;
   if (req.headers.get('x-secret') !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }

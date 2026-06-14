@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getFlightTargets } from '@/lib/notion';
-
-export const maxDuration = 300;
+import { blockScrapeOnVercel } from '@/lib/guard';
 
 export async function GET(req: Request) {
+  // Scraping (and fanning out scans) runs locally only — never on Vercel.
+  const blocked = blockScrapeOnVercel();
+  if (blocked) return blocked;
   // Auth check
   const auth = req.headers.get('authorization');
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {

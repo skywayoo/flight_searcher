@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { scrapePricesFromUrl } from '@/lib/scraper/eztravel-real';
+import { blockScrapeOnVercel } from '@/lib/guard';
 import type { FlightSegmentSpec } from '@/types';
-
-export const maxDuration = 120;
 
 function fmtEzDate(iso: string): string {
   const [y, m, d] = iso.split('-');
@@ -29,6 +28,8 @@ interface Body {
 }
 
 export async function POST(req: Request) {
+  const blocked = blockScrapeOnVercel();
+  if (blocked) return blocked;
   if (req.headers.get('x-secret') !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }

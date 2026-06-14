@@ -2,12 +2,12 @@ import { NextResponse } from 'next/server';
 import { getFlightTarget, getFlightResults, createFlightResult, updateFlightTarget } from '@/lib/notion';
 import { scrapeTarget } from '@/lib/scraper';
 import { notifyPriceChange } from '@/lib/telegram';
+import { blockScrapeOnVercel } from '@/lib/guard';
 import type { FlightCombination } from '@/types';
 
-// Vercel function timeout: scraping can take a while
-export const maxDuration = 300; // 5 min (Pro plan)
-
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const blocked = blockScrapeOnVercel();
+  if (blocked) return blocked;
   const { id } = await ctx.params;
   try {
     const target = await getFlightTarget(id);
