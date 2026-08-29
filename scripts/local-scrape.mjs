@@ -244,9 +244,13 @@ function parseArgs(argv) {
   const args = {};
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith('--')) {
-      const k = a.slice(2);
-      const v = argv[i + 1];
+    if (!a.startsWith('--')) continue;
+    const k = a.slice(2);
+    const v = argv[i + 1];
+    // A valueless flag such as --resume must not swallow the flag after it.
+    if (v === undefined || v.startsWith('--')) {
+      args[k] = true;
+    } else {
       args[k] = v;
       i++;
     }
@@ -261,7 +265,7 @@ async function main() {
   const concurrency = parseInt(args.concurrency || '4', 10);
   if (!input || !output) {
     console.error('Usage: --input <jsonl> --output <jsonl> [--concurrency 4] [--sources both]');
-    console.error('       [--econ-cap 50000] [--biz-cap 80000] [--cap-margin 0.10]');
+    console.error('       [--econ-cap 50000] [--biz-cap 80000] [--cap-margin 0.10] [--resume]');
     exit(1);
   }
 
@@ -300,10 +304,34 @@ async function main() {
 
   if (!existsSync(dirname(output))) mkdirSync(dirname(output), { recursive: true });
 
-  const tasks = readFileSync(input, 'utf8')
+  let tasks = readFileSync(input, 'utf8')
     .split('\n')
     .filter((l) => l.trim())
     .map((l) => JSON.parse(l));
+
+  // Identity of a task as far as resuming is concerned: the itinerary plus the
+  // cabin. Sources are separate output lines for the same task, so a task only
+  // counts as done once every requested source has written a line for it.
+  const taskKey = (t) => JSON.stringify([t.cabin, t.segments.map((g) => [g.from, g.to, g.date])]);
+
+  if (args.resume !== undefined && existsSync(output)) {
+    const seen = new Map();
+    for (const line of readFileSync(output, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      let r;
+      try { r = JSON.parse(line); } catch { continue; }
+      if (!r.segments || !r.cabin) continue;
+      const k = taskKey(r);
+      if (!seen.has(k)) seen.set(k, new Set());
+      seen.get(k).add(r.source || 'eztravel');
+    }
+    const before = tasks.length;
+    tasks = tasks.filter((t) => {
+      const done = seen.get(taskKey(t));
+      return !done || !selected.every((src) => done.has(src));
+    });
+    console.error(`resume: ${before - tasks.length} already in ${output}, ${tasks.length} left`);
+  }
 
   console.error(`tasks: ${tasks.length}, concurrency: ${concurrency}`);
   console.error('launching browser...');
@@ -325,10 +353,19 @@ async function main() {
   // tasks/worker × 4 workers with 'Ineffective mark-compacts near heap limit'.
   const CONTEXT_ROTATE = parseInt(process.env.CONTEXT_ROTATE || '150', 10);
   const TRIP_EMPTY_STREAK = parseInt(process.env.TRIP_EMPTY_STREAK || '8', 10);
+  // eztravel stops returning prices after roughly 1500-2500 requests on one
+  // context: pages start coming back instantly and empty. Unlike trip.com's
+  // block that survives a recycle, this one clears completely with a fresh
+  // Incapsula warm-up, so a worker can recover itself. Only ~13% of itineraries
+  // price even when healthy, so the threshold has to sit well above a normal
+  // run of empties (25 in a row is p<0.03 when healthy).
+  const EZ_EMPTY_STREAK = parseInt(process.env.EZ_EMPTY_STREAK || '25', 10);
   const workers = Array.from({ length: concurrency }, async (_, w) => {
     let ezCtx, tripCtx;
     let sinceRotate = 0;
     let tripEmptyStreak = 0;
+    let ezEmptyStreak = 0;
+    let ezRewarms = 0;
     let tripRecycled = false;
     let tripDisabled = false;
     async function makeContexts() {
@@ -409,9 +446,17 @@ async function main() {
       const overCap = cap && tripMin !== null && tripMin > cap * (1 + capMargin);
       if (overCap) skippedOverCap++;
       if (useEztravel && !overCap) {
+        if (ezEmptyStreak >= EZ_EMPTY_STREAK) {
+          ezRewarms++;
+          console.error(`[w${w}] ${ezEmptyStreak} price-less eztravel pages in a row — re-warming context (#${ezRewarms})`);
+          await ezCtx?.close().catch(() => {});
+          ezCtx = null;
+          ezEmptyStreak = 0;
+        }
         const t0 = Date.now();
         try {
           const result = await scrapeOne(await eztravelContext(), task.segments, task.cabin);
+          ezEmptyStreak = result.ok && result.prices?.length ? 0 : ezEmptyStreak + 1;
           appendFileSync(output, JSON.stringify({ ...task, source: 'eztravel', ...result }) + '\n');
         } catch (e) {
           appendFileSync(output, JSON.stringify({
@@ -432,7 +477,7 @@ async function main() {
         const mem = process.memoryUsage();
         const rssMb = Math.round(mem.rss / 1024 / 1024);
         const heapMb = Math.round(mem.heapUsed / 1024 / 1024);
-        console.error(`[w${w}] ${completed}/${tasks.length} elapsed=${elapsed}s eta=${eta}s rate=${rate.toFixed(2)}/s skipped=${skippedOverCap} rss=${rssMb}MB heap=${heapMb}MB`);
+        console.error(`[w${w}] ${completed}/${tasks.length} elapsed=${elapsed}s eta=${eta}s rate=${rate.toFixed(2)}/s skipped=${skippedOverCap} rewarm=${ezRewarms} rss=${rssMb}MB heap=${heapMb}MB`);
       }
     }
     await ezCtx?.close().catch(() => {});

@@ -446,6 +446,8 @@ def main():
     ap.add_argument("--prefilter", action="store_true",
                     help="Drop outer cities with no direct BR/CI/JX service before scraping")
     ap.add_argument("--prefilter-carriers", default="長榮航空,中華航空,星宇航空")
+    ap.add_argument("--resume", action="store_true",
+                    help="Skip tasks already present in --raw-results-path")
     ap.add_argument("--prefilter-reuse", action="store_true",
                     help="Reuse the previous prefilter verdicts instead of probing again")
     ap.add_argument("--sources", default="both",
@@ -510,8 +512,8 @@ def main():
         print("(--dry-run set, stopping before scrape)")
         return
 
-    # Make sure raw results file is empty
-    open(args.raw_results_path, "w").close()
+    if not args.resume:
+        open(args.raw_results_path, "w").close()
 
     # Spawn local-scrape.mjs
     scrape_script = ROOT / "scripts" / "local-scrape.mjs"
@@ -520,6 +522,8 @@ def main():
            "--output", args.raw_results_path,
            "--concurrency", str(args.concurrency),
            "--sources", args.sources]
+    if args.resume:
+        cmd.append("--resume")
     print(f"\n🛫 running scraper (concurrency={args.concurrency}, sources={args.sources})…")
     print(f"   {' '.join(cmd)}")
 
