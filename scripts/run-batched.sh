@@ -19,6 +19,7 @@ RESULTS="${RESULTS:-/tmp/flight-run2-raw.jsonl}"
 COOLDOWN="${COOLDOWN:-2700}"        # 45 min
 MAX_BATCHES="${MAX_BATCHES:-20}"
 CONCURRENCY="${CONCURRENCY:-6}"
+MAX_TASKS="${MAX_TASKS:-200000}"   # the guard exists to catch a runaway target, not to cap a deliberate sweep
 
 for i in $(seq 1 "$MAX_BATCHES"); do
   echo "=== batch $i/$MAX_BATCHES  $(date '+%F %T') ==="
@@ -27,7 +28,7 @@ for i in $(seq 1 "$MAX_BATCHES"); do
       --concurrency "$CONCURRENCY" \
       --sources eztravel \
       --progress-every 1800 \
-      --max-tasks 50000 \
+      --max-tasks "$MAX_TASKS" \
       --raw-results-path "$RESULTS"
   rc=$?
   echo "=== batch $i exit=$rc  $(date '+%F %T') ==="
