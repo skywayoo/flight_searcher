@@ -19,6 +19,16 @@ AIRPORT_GROUPS = {
         "NRT", "HND", "KIX", "NGO", "FUK", "CTS", "OKA",
         "KOJ", "HIJ", "TAK", "KMJ", "KIJ",
     ],
+    # Every Japanese airport with a scheduled direct service to Taiwan,
+    # Okinawa prefecture (OKA/ISG/MMY) deliberately left out.
+    "日本直飛台灣": [
+        "NRT", "HND", "KIX", "NGO", "FUK", "CTS",          # 主要門戶
+        "SDJ", "KMQ", "OKJ", "HIJ", "TAK", "MYJ",          # 仙台 小松 岡山 廣島 高松 松山
+        "KMJ", "KOJ", "NGS", "OIT", "KKJ", "UBJ",          # 熊本 鹿兒島 長崎 大分 北九州 山口宇部
+        "FSZ", "KIJ", "HKD", "AOJ", "TOY", "KCZ",          # 靜岡 新潟 函館 青森 富山 高知
+        "TKS", "IBR", "AKJ", "FKS", "YGJ", "ASJ",          # 德島 茨城 旭川 福島 米子 奄美
+    ],
+    "日本直飛台灣_門戶": ["NRT", "HND", "KIX", "NGO", "FUK", "CTS"],
 
     # === 韓國 ===
     "韓國主要": ["ICN", "GMP"],

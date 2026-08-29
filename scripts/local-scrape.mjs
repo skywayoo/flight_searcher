@@ -31,12 +31,13 @@ function buildMultiCityUrl(segments, cabin) {
   return `https://flight.eztravel.com.tw/tickets-multicity-${firstFrom}-${firstTo}/?${segParams}&adults=1&children=0&infants=0&direct=false&cabintype=${cabin === 'business' ? 'business' : 'any'}`;
 }
 
-function buildOneWayUrl(from, to, date, cabin) {
-  // Single-segment via multicity URL pattern — eztravel accepts 1-segment
-  // multicity and renders the same airline price list.
+function buildOneWayUrl(from, to, date, cabin, directOnly = false) {
+  // Must use the tickets-oneway- path. The multicity path with a single
+  // segment loads the search form but never populates from/to, so eztravel
+  // answers every such query with 查無可訂航班 regardless of the route.
   const f = from.toUpperCase();
   const t = to.toUpperCase();
-  return `https://flight.eztravel.com.tw/tickets-multicity-${f}-${t}/?dcity1=${f}&acity1=${t}&date1=${fmtEzDate(date)}&dport1=${f}&aport1=${t}&adults=1&children=0&infants=0&direct=false&cabintype=${cabin === 'business' ? 'business' : 'any'}`;
+  return `https://flight.eztravel.com.tw/tickets-oneway-${f}-${t}/?dcity1=${f}&acity1=${t}&date1=${fmtEzDate(date)}&dport1=${f}&aport1=${t}&adults=1&children=0&infants=0&direct=${directOnly}&cabintype=${cabin === 'business' ? 'business' : 'any'}`;
 }
 
 // ============================================================
@@ -172,52 +173,60 @@ async function createWarmContext(browser) {
   return ctx;
 }
 
-async function scrapeOne(ctx, segments, cabin) {
+// eztravel says 查無可訂航班 for an empty route and 沒有符合的結果 when filters
+// exclude everything. Matching only the second one made every dead route sit
+// out the full 12s poll instead of returning immediately.
+const NO_RESULT_RE = /查無可訂航班|沒有符合的結果/;
+
+async function scrapeOne(ctx, segments, cabin, { directOnly = false } = {}) {
   const url = segments.length === 1
-    ? buildOneWayUrl(segments[0].from, segments[0].to, segments[0].date, cabin)
+    ? buildOneWayUrl(segments[0].from, segments[0].to, segments[0].date, cabin, directOnly)
     : buildMultiCityUrl(segments, cabin);
   const page = await ctx.newPage();
   const t0 = Date.now();
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
-    // Adaptive wait: poll every 300ms, bail at 12s.
-    let bodyText = '';
+    // Poll for the parsed airline rows themselves. The previous predicate
+    // broke as soon as the literal 'TWD' appeared anywhere in body text, but
+    // the page chrome (currency selector) already contains it — so a page
+    // whose results had not rendered yet was read as "no airlines" and the
+    // whole route was scored empty. FUK/NGO->TPE reproduced this every time
+    // while genuinely having daily BR/CI service.
+    let airlines = [];
+    let noResult = false;
     const startWait = Date.now();
     while (Date.now() - startWait < 12000) {
-      bodyText = await page.evaluate(() => document.body.innerText);
-      if (bodyText.includes('TWD') || bodyText.includes('沒有符合的結果')) break;
+      const snap = await page.evaluate((noResultSrc) => {
+        const out = [];
+        const seen = new Set();
+        const groups = document.querySelectorAll('.filter-group, [class*="filter-group"]');
+        let airlineGroup = null;
+        for (const g of Array.from(groups)) {
+          const txt = g.innerText || '';
+          if (/^航空公司/.test(txt)) { airlineGroup = g; break; }
+        }
+        const root = airlineGroup ?? document;
+        for (const el of Array.from(root.querySelectorAll('label.el-checkbox span.el-checkbox__label'))) {
+          const m = (el.innerText || '').match(/^(.+?)\s+TWD\s*([\d,]+)/);
+          if (!m) continue;
+          const name = m[1].trim();
+          if (name === '全選' || name.includes('機場') || name.includes('航廈') || name.length < 2) continue;
+          if (seen.has(name)) continue;
+          seen.add(name);
+          const price = parseInt(m[2].replace(/,/g, ''), 10);
+          if (price > 0) out.push({ airline: name, price });
+        }
+        return { rows: out, noResult: new RegExp(noResultSrc).test(document.body.innerText || '') };
+      }, NO_RESULT_RE.source);
+      airlines = snap.rows;
+      noResult = snap.noResult;
+      if (airlines.length || noResult) break;
       await page.waitForTimeout(300);
     }
-    if (bodyText.includes('沒有符合的結果')) {
+    if (!airlines.length) {
       return { ok: true, prices: [], url, durationMs: Date.now() - t0 };
     }
-
-    const airlines = await page.evaluate(() => {
-      const out = [];
-      const seen = new Set();
-      const groups = document.querySelectorAll('.filter-group, [class*="filter-group"]');
-      let airlineGroup = null;
-      for (const g of Array.from(groups)) {
-        const txt = g.innerText || '';
-        if (/^航空公司/.test(txt) || txt.startsWith('航空公司')) { airlineGroup = g; break; }
-      }
-      const root = airlineGroup ?? document;
-      const checkboxes = root.querySelectorAll('label.el-checkbox span.el-checkbox__label');
-      for (const el of Array.from(checkboxes)) {
-        const text = el.innerText || '';
-        const m = text.match(/^(.+?)\s+TWD\s*([\d,]+)/);
-        if (!m) continue;
-        const name = m[1].trim();
-        if (name === '全選' || name.includes('機場') || name.includes('航廈') || name.length < 2) continue;
-        if (seen.has(name)) continue;
-        seen.add(name);
-        const price = parseInt(m[2].replace(/,/g, ''), 10);
-        if (price > 0) out.push({ airline: name, price });
-      }
-      return out;
-    });
-
     return {
       ok: true,
       prices: airlines.sort((a, b) => a.price - b.price),
