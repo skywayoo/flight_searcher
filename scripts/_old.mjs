@@ -9,9 +9,8 @@
 // Each output line preserves that metadata and adds scrape result fields.
 
 import { chromium } from 'playwright-core';
-import { readFileSync, appendFileSync, existsSync, mkdirSync, realpathSync } from 'fs';
+import { readFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { argv, exit } from 'process';
 
 function fmtEzDate(iso) {
@@ -63,27 +62,14 @@ function buildTripMobileUrl(segs, cabin) {
   return `https://tw.trip.com/m/flights/flightfirst/?${p}`;
 }
 
-// Never affect the price text we parse, but dominate the bytes and the
-// decode/layout work. Dropping them cut trip.com's wall time by ~33% in
-// scripts/bench-scrape.mjs. Deliberately NOT applied to the eztravel context:
-// that one sits behind Incapsula and is flaky enough without perturbing what
-// its anti-bot JS sees load.
-const SKIPPABLE_RESOURCES = new Set(['image', 'media', 'font']);
-
 async function createTripContext(browser) {
   // Trip.com mobile uses wholetext attribute for prices (anti-scrape).
   // Mobile UA + small viewport triggers the mobile flightfirst page which shows bundle totals.
-  const ctx = await browser.newContext({
+  return browser.newContext({
     viewport: { width: 414, height: 896 },
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
     locale: 'zh-TW',
   });
-  await ctx.route('**/*', (route) => (
-    SKIPPABLE_RESOURCES.has(route.request().resourceType())
-      ? route.abort()
-      : route.continue()
-  ));
-  return ctx;
 }
 
 async function scrapeTrip(ctx, segments, cabin) {
@@ -92,9 +78,7 @@ async function scrapeTrip(ctx, segments, cabin) {
   const t0 = Date.now();
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    // Wait up to 25s for prices to render. Benchmarks put first paint of a
-    // price at 1.5–2.7s, so poll at 400ms rather than 1s — a full second of
-    // idle waiting per task is the single largest avoidable cost here.
+    // Wait up to 25s for prices to render
     let waited = 0;
     let foundPrice = false;
     while (waited < 25000) {
@@ -104,8 +88,8 @@ async function scrapeTrip(ctx, segments, cabin) {
         );
       });
       if (foundPrice) break;
-      await page.waitForTimeout(400);
-      waited += 400;
+      await page.waitForTimeout(1000);
+      waited += 1000;
     }
     if (!foundPrice) {
       return { ok: true, source: 'trip.com', prices: [], url, durationMs: Date.now() - t0 };
@@ -252,22 +236,6 @@ async function main() {
   const concurrency = parseInt(args.concurrency || '4', 10);
   if (!input || !output) {
     console.error('Usage: --input <jsonl> --output <jsonl> [--concurrency 4] [--sources both]');
-    console.error('       [--econ-cap 50000] [--biz-cap 80000] [--cap-margin 0.10]');
-    exit(1);
-  }
-
-  // Budget gate. Both sources already report the total fare for the whole
-  // multi-city ticket on their first result page, so once the leading source
-  // comes back over budget there is nothing to gain from loading the second
-  // one. Benchmarked on 18 four-segment tasks: trip.com priced 18/18 at
-  // ~1.9s/task, eztravel 5/18 at ~6.5s/task, and eztravel undercut trip.com in
-  // 1 of 6 pairs by 3.5% — hence trip.com leads and the margin below keeps that
-  // outlier reachable.
-  const econCap = args['econ-cap'] ? parseInt(args['econ-cap'], 10) : null;
-  const bizCap = args['biz-cap'] ? parseInt(args['biz-cap'], 10) : null;
-  const capMargin = parseFloat(args['cap-margin'] ?? '0.10');
-  if (Number.isNaN(capMargin) || capMargin < 0) {
-    console.error(`--cap-margin: bad value ${JSON.stringify(args['cap-margin'])} (expected a number >= 0)`);
     exit(1);
   }
 
@@ -304,7 +272,6 @@ async function main() {
   });
 
   let completed = 0;
-  let skippedOverCap = 0;
   const started = Date.now();
 
   // Worker pool. Each worker holds the contexts required by the selected
@@ -315,23 +282,12 @@ async function main() {
   // can't reclaim between page.close() calls. Previously crashed at ~1620
   // tasks/worker × 4 workers with 'Ineffective mark-compacts near heap limit'.
   const CONTEXT_ROTATE = parseInt(process.env.CONTEXT_ROTATE || '150', 10);
-  const TRIP_EMPTY_STREAK = parseInt(process.env.TRIP_EMPTY_STREAK || '8', 10);
   const workers = Array.from({ length: concurrency }, async (_, w) => {
     let ezCtx, tripCtx;
     let sinceRotate = 0;
-    let tripEmptyStreak = 0;
-    let tripRecycled = false;
-    let tripDisabled = false;
     async function makeContexts() {
+      if (useEztravel) ezCtx = await createWarmContext(browser);
       if (useTrip) tripCtx = await createTripContext(browser);
-      // eztravel's context costs ~4.5s to warm past Incapsula and holds a
-      // second set of cookies for the worker's whole life. With the budget
-      // gate most tasks never reach eztravel, so pay that only on first use.
-      ezCtx = null;
-    }
-    async function eztravelContext() {
-      if (!ezCtx) ezCtx = await createWarmContext(browser);
-      return ezCtx;
     }
     try {
       await makeContexts();
@@ -342,21 +298,6 @@ async function main() {
     while (queue.length) {
       const task = queue.shift();
       if (!task) break;
-      // A long run of price-less trip.com pages means the session got throttled
-      // rather than that every itinerary sold out — trip.com then costs the
-      // full 25s wait per task AND stops feeding the budget gate, so the run
-      // ends up slower than it was before the gate existed. First try fresh
-      // cookies; if that doesn't bring prices back the block is above the
-      // session (observed: recycling did not help), so stop paying the 25s and
-      // finish the run on eztravel alone.
-      if (!tripDisabled && tripEmptyStreak >= TRIP_EMPTY_STREAK * 2) {
-        console.error(`[w${w}] trip.com still price-less after a context recycle — dropping it for the rest of this run`);
-        tripDisabled = true;
-      } else if (tripEmptyStreak >= TRIP_EMPTY_STREAK && !tripRecycled) {
-        console.error(`[w${w}] ${tripEmptyStreak} price-less trip.com pages in a row — recycling context`);
-        tripRecycled = true;
-        sinceRotate = CONTEXT_ROTATE;
-      }
       if (sinceRotate >= CONTEXT_ROTATE) {
         // Recycle contexts to free memory before next batch.
         await ezCtx?.close().catch(() => {});
@@ -370,39 +311,10 @@ async function main() {
         sinceRotate = 0;
         if (global.gc) global.gc();
       }
-      // 1. trip.com leads — it is the faster and far more complete source.
-      let tripMin = null;
-      if (useTrip && !tripDisabled) {
-        const t1 = Date.now();
-        try {
-          const result = await scrapeTrip(tripCtx, task.segments, task.cabin);
-          tripMin = result.ok && result.prices?.length ? result.prices[0].price : null;
-          tripEmptyStreak = tripMin === null ? tripEmptyStreak + 1 : 0;
-          appendFileSync(output, JSON.stringify({ ...task, ...result }) + '\n');
-        } catch (e) {
-          appendFileSync(output, JSON.stringify({
-            ...task,
-            source: 'trip.com',
-            ok: false,
-            error: String(e).slice(0, 200),
-            durationMs: Date.now() - t1,
-          }) + '\n');
-        }
-      }
-
-      // 2. eztravel only when the ticket might still land inside budget.
-      // Per-task caps (stamped by the scanners from each target's own budget)
-      // win over the run-wide --econ-cap/--biz-cap defaults. A cap of 0 or a
-      // missing cap means "no budget set" — never gate those.
-      const cap = task.cabin === 'business'
-        ? (task.biz_cap || bizCap)
-        : (task.econ_cap || econCap);
-      const overCap = cap && tripMin !== null && tripMin > cap * (1 + capMargin);
-      if (overCap) skippedOverCap++;
-      if (useEztravel && !overCap) {
+      if (useEztravel) {
         const t0 = Date.now();
         try {
-          const result = await scrapeOne(await eztravelContext(), task.segments, task.cabin);
+          const result = await scrapeOne(ezCtx, task.segments, task.cabin);
           appendFileSync(output, JSON.stringify({ ...task, source: 'eztravel', ...result }) + '\n');
         } catch (e) {
           appendFileSync(output, JSON.stringify({
@@ -411,6 +323,21 @@ async function main() {
             ok: false,
             error: String(e).slice(0, 200),
             durationMs: Date.now() - t0,
+          }) + '\n');
+        }
+      }
+      if (useTrip) {
+        const t1 = Date.now();
+        try {
+          const result = await scrapeTrip(tripCtx, task.segments, task.cabin);
+          appendFileSync(output, JSON.stringify({ ...task, ...result }) + '\n');
+        } catch (e) {
+          appendFileSync(output, JSON.stringify({
+            ...task,
+            source: 'trip.com',
+            ok: false,
+            error: String(e).slice(0, 200),
+            durationMs: Date.now() - t1,
           }) + '\n');
         }
       }
@@ -423,7 +350,7 @@ async function main() {
         const mem = process.memoryUsage();
         const rssMb = Math.round(mem.rss / 1024 / 1024);
         const heapMb = Math.round(mem.heapUsed / 1024 / 1024);
-        console.error(`[w${w}] ${completed}/${tasks.length} elapsed=${elapsed}s eta=${eta}s rate=${rate.toFixed(2)}/s skipped=${skippedOverCap} rss=${rssMb}MB heap=${heapMb}MB`);
+        console.error(`[w${w}] ${completed}/${tasks.length} elapsed=${elapsed}s eta=${eta}s rate=${rate.toFixed(2)}/s rss=${rssMb}MB heap=${heapMb}MB`);
       }
     }
     await ezCtx?.close().catch(() => {});
@@ -435,14 +362,7 @@ async function main() {
   console.error('done');
 }
 
-// Only run the batch when invoked directly, so benchmarks/tests can import
-// the scrape helpers without kicking off a full run.
-const invokedDirectly = argv[1] && realpathSync(argv[1]) === fileURLToPath(import.meta.url);
-if (invokedDirectly) {
-  main().catch((e) => {
-    console.error('fatal:', e);
-    exit(1);
-  });
-}
-
-export { scrapeOne, scrapeTrip, createWarmContext, createTripContext, buildMultiCityUrl, buildTripMobileUrl };
+main().catch((e) => {
+  console.error('fatal:', e);
+  exit(1);
+});
