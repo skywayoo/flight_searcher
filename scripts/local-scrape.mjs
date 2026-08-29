@@ -360,6 +360,16 @@ async function main() {
   // price even when healthy, so the threshold has to sit well above a normal
   // run of empties (25 in a row is p<0.03 when healthy).
   const EZ_EMPTY_STREAK = parseInt(process.env.EZ_EMPTY_STREAK || '25', 10);
+  // Once eztravel's session block is in place it answers instantly with an
+  // empty page, and re-warming the context does NOT clear it — the block
+  // outlives the context and only lifts after a cooldown (~30-45 min observed).
+  // Grinding on regardless is what turned an 18k-task run into 9,600 junk
+  // lines, so exit with a distinct code and let the caller resume later.
+  const EZ_BLOCK_WINDOW = parseInt(process.env.EZ_BLOCK_WINDOW || '40', 10);
+  const EZ_BLOCK_MS = parseInt(process.env.EZ_BLOCK_MS || '1200', 10);
+  const EXIT_BLOCKED = 3;
+  const ezRecent = [];
+  let blocked = false;
   const workers = Array.from({ length: concurrency }, async (_, w) => {
     let ezCtx, tripCtx;
     let sinceRotate = 0;
@@ -386,6 +396,7 @@ async function main() {
       return;
     }
     while (queue.length) {
+      if (blocked) break;
       const task = queue.shift();
       if (!task) break;
       // A long run of price-less trip.com pages means the session got throttled
@@ -457,6 +468,15 @@ async function main() {
         try {
           const result = await scrapeOne(await eztravelContext(), task.segments, task.cabin);
           ezEmptyStreak = result.ok && result.prices?.length ? 0 : ezEmptyStreak + 1;
+          // A genuine "no flights" answer still costs a real page load; an
+          // instant empty one does not. That gap is what separates a dead
+          // route from a blocked session.
+          ezRecent.push({ priced: !!result.prices?.length, ms: result.durationMs ?? 0 });
+          if (ezRecent.length > EZ_BLOCK_WINDOW) ezRecent.shift();
+          if (ezRecent.length === EZ_BLOCK_WINDOW && !ezRecent.some((x) => x.priced)) {
+            const avg = ezRecent.reduce((a, x) => a + x.ms, 0) / ezRecent.length;
+            if (avg < EZ_BLOCK_MS) blocked = true;
+          }
           appendFileSync(output, JSON.stringify({ ...task, source: 'eztravel', ...result }) + '\n');
         } catch (e) {
           appendFileSync(output, JSON.stringify({
@@ -486,6 +506,10 @@ async function main() {
 
   await Promise.all(workers);
   await browser.close();
+  if (blocked) {
+    console.error(`blocked: ${EZ_BLOCK_WINDOW} eztravel pages in a row came back empty in under ${EZ_BLOCK_MS}ms each — stopping so a later --resume can pick up where this left off`);
+    exit(EXIT_BLOCKED);
+  }
   console.error('done');
 }
 

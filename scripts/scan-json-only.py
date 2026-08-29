@@ -541,6 +541,17 @@ def main():
     started = time.time()
     rc = watch_scrape(cmd, args, env, len(all_tasks), caps, started)
     elapsed = time.time() - started
+    if rc == 3:
+        # local-scrape stopped itself because eztravel's session block kicked
+        # in. Expected on a long run — run-batched.sh waits it out and resumes.
+        done = sum(1 for _ in open(args.raw_results_path))
+        print(f"⏸️  eztravel 擋住了，這批停在 {done} 筆（{elapsed / 60:.1f} 分鐘）", file=sys.stderr)
+        maybe_telegram(env, "\n".join([
+            "⏸️ <b>被 eztravel 擋住，暫停</b>",
+            f"這批跑了 {elapsed / 60:.0f} 分鐘，累計 {done:,} 筆結果",
+            "等冷卻後自動續跑，進度不會丟。",
+        ]))
+        sys.exit(rc)
     if rc != 0:
         print(f"❌ scraper exit {rc} after {elapsed:.1f}s", file=sys.stderr)
         maybe_telegram(env, f"❌ <b>掃描中斷</b>（exit {rc}，跑了 {elapsed / 60:.1f} 分鐘）")
