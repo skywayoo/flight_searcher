@@ -316,16 +316,18 @@ def probe_cities(args, env, targets):
     with open(probe_path, "w") as f:
         for city, date_, direction in probes:
             f.write(json.dumps({"city": city, "date": date_, "direction": direction}) + "\n")
-    open(keep_path, "w").close()
+    reuse = args.prefilter_reuse and os.path.exists(keep_path) and os.path.getsize(keep_path) > 0
+    if not reuse:
+        open(keep_path, "w").close()
 
-    print(f"\n🔎 prefilter: {len(probes)} 次直飛探測")
+    print(f"\n🔎 prefilter: {len(probes)} 次直飛探測" + ("（沿用上次結果）" if reuse else ""))
     maybe_telegram(env, f"🔎 <b>前置篩選</b>\n{len(probes)} 個「城市×日期」探測直飛航班中…")
 
     cmd = [NODE, str(ROOT / "scripts" / "prefilter-origins.mjs"),
            "--input", probe_path, "--output", keep_path,
            "--concurrency", str(max(1, min(3, args.concurrency))),
            "--carriers", args.prefilter_carriers]
-    if subprocess.call(cmd) != 0:
+    if not reuse and subprocess.call(cmd) != 0:
         print("⚠️  prefilter failed — 不篩選，全部照跑", file=sys.stderr)
         return None
 
@@ -444,6 +446,10 @@ def main():
     ap.add_argument("--prefilter", action="store_true",
                     help="Drop outer cities with no direct BR/CI/JX service before scraping")
     ap.add_argument("--prefilter-carriers", default="長榮航空,中華航空,星宇航空")
+    ap.add_argument("--prefilter-reuse", action="store_true",
+                    help="Reuse the previous prefilter verdicts instead of probing again")
+    ap.add_argument("--sources", default="both",
+                    help="Passed through to local-scrape.mjs (eztravel / trip.com / both)")
     ap.add_argument("--progress-every", type=int, default=180,
                     help="Seconds between Telegram progress updates (0 disables)")
     args = ap.parse_args()
@@ -512,8 +518,9 @@ def main():
     cmd = [NODE, str(scrape_script),
            "--input", args.tasks_path,
            "--output", args.raw_results_path,
-           "--concurrency", str(args.concurrency)]
-    print(f"\n🛫 running scraper (concurrency={args.concurrency})…")
+           "--concurrency", str(args.concurrency),
+           "--sources", args.sources]
+    print(f"\n🛫 running scraper (concurrency={args.concurrency}, sources={args.sources})…")
     print(f"   {' '.join(cmd)}")
 
     caps = {}
