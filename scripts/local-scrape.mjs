@@ -3,6 +3,7 @@
 //
 // Usage:
 //   node scripts/local-scrape.mjs --input tasks.jsonl --concurrency 4 --output results.jsonl
+//   --sources eztravel|trip.com|both  (default: both; comma-separated to combine)
 //
 // Each input line includes out1/out4/nz/seg4 metadata plus segments.
 // Each output line preserves that metadata and adds scrape result fields.
@@ -234,9 +235,28 @@ async function main() {
   const output = args.output;
   const concurrency = parseInt(args.concurrency || '4', 10);
   if (!input || !output) {
-    console.error('Usage: --input <jsonl> --output <jsonl> [--concurrency 4]');
+    console.error('Usage: --input <jsonl> --output <jsonl> [--concurrency 4] [--sources both]');
     exit(1);
   }
+
+  // `--sources eztravel` is useful for a fast first-pass: eztravel's displayed
+  // multicity fare is already the total for every segment in the ticket.
+  // Validated before the browser launches so a typo fails fast instead of
+  // scraping nothing and exiting 0.
+  const ALL_SOURCES = ['eztravel', 'trip.com'];
+  const requested = (args.sources || 'both')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const selected = requested.includes('both') ? ALL_SOURCES : requested;
+  const unknown = selected.filter((s) => !ALL_SOURCES.includes(s));
+  if (unknown.length || !selected.length) {
+    console.error(`--sources: bad value ${JSON.stringify(args.sources)} (valid: ${ALL_SOURCES.join(', ')}, both)`);
+    exit(1);
+  }
+  const useEztravel = selected.includes('eztravel');
+  const useTrip = selected.includes('trip.com');
+
   if (!existsSync(dirname(output))) mkdirSync(dirname(output), { recursive: true });
 
   const tasks = readFileSync(input, 'utf8')
@@ -254,9 +274,8 @@ async function main() {
   let completed = 0;
   const started = Date.now();
 
-  // Worker pool. Each worker holds 2 contexts: eztravel (warmed for Incapsula)
-  // and trip.com mobile (no warm-up needed). Per task, scrape both sources
-  // sequentially and emit 2 JSONL lines (one per source).
+  // Worker pool. Each worker holds the contexts required by the selected
+  // sources. Per task, emit one JSONL line for each requested source.
   const queue = [...tasks];
   // Rotate contexts every CONTEXT_ROTATE tasks to avoid Node heap OOM —
   // playwright contexts accumulate cookies/storage/listeners that the V8 GC
@@ -267,8 +286,8 @@ async function main() {
     let ezCtx, tripCtx;
     let sinceRotate = 0;
     async function makeContexts() {
-      ezCtx = await createWarmContext(browser);
-      tripCtx = await createTripContext(browser);
+      if (useEztravel) ezCtx = await createWarmContext(browser);
+      if (useTrip) tripCtx = await createTripContext(browser);
     }
     try {
       await makeContexts();
@@ -281,8 +300,8 @@ async function main() {
       if (!task) break;
       if (sinceRotate >= CONTEXT_ROTATE) {
         // Recycle contexts to free memory before next batch.
-        await ezCtx.close().catch(() => {});
-        await tripCtx.close().catch(() => {});
+        await ezCtx?.close().catch(() => {});
+        await tripCtx?.close().catch(() => {});
         try {
           await makeContexts();
         } catch (e) {
@@ -292,33 +311,35 @@ async function main() {
         sinceRotate = 0;
         if (global.gc) global.gc();
       }
-      // 1. eztravel
-      const t0 = Date.now();
-      try {
-        const result = await scrapeOne(ezCtx, task.segments, task.cabin);
-        appendFileSync(output, JSON.stringify({ ...task, source: 'eztravel', ...result }) + '\n');
-      } catch (e) {
-        appendFileSync(output, JSON.stringify({
-          ...task,
-          source: 'eztravel',
-          ok: false,
-          error: String(e).slice(0, 200),
-          durationMs: Date.now() - t0,
-        }) + '\n');
+      if (useEztravel) {
+        const t0 = Date.now();
+        try {
+          const result = await scrapeOne(ezCtx, task.segments, task.cabin);
+          appendFileSync(output, JSON.stringify({ ...task, source: 'eztravel', ...result }) + '\n');
+        } catch (e) {
+          appendFileSync(output, JSON.stringify({
+            ...task,
+            source: 'eztravel',
+            ok: false,
+            error: String(e).slice(0, 200),
+            durationMs: Date.now() - t0,
+          }) + '\n');
+        }
       }
-      // 2. trip.com
-      const t1 = Date.now();
-      try {
-        const result = await scrapeTrip(tripCtx, task.segments, task.cabin);
-        appendFileSync(output, JSON.stringify({ ...task, ...result }) + '\n');
-      } catch (e) {
-        appendFileSync(output, JSON.stringify({
-          ...task,
-          source: 'trip.com',
-          ok: false,
-          error: String(e).slice(0, 200),
-          durationMs: Date.now() - t1,
-        }) + '\n');
+      if (useTrip) {
+        const t1 = Date.now();
+        try {
+          const result = await scrapeTrip(tripCtx, task.segments, task.cabin);
+          appendFileSync(output, JSON.stringify({ ...task, ...result }) + '\n');
+        } catch (e) {
+          appendFileSync(output, JSON.stringify({
+            ...task,
+            source: 'trip.com',
+            ok: false,
+            error: String(e).slice(0, 200),
+            durationMs: Date.now() - t1,
+          }) + '\n');
+        }
       }
       completed++;
       sinceRotate++;
@@ -332,8 +353,8 @@ async function main() {
         console.error(`[w${w}] ${completed}/${tasks.length} elapsed=${elapsed}s eta=${eta}s rate=${rate.toFixed(2)}/s rss=${rssMb}MB heap=${heapMb}MB`);
       }
     }
-    await ezCtx.close().catch(() => {});
-    await tripCtx.close().catch(() => {});
+    await ezCtx?.close().catch(() => {});
+    await tripCtx?.close().catch(() => {});
   });
 
   await Promise.all(workers);
