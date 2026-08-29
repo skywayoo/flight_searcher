@@ -500,6 +500,23 @@ def main():
         print("❌ nothing to scan after expansion", file=sys.stderr)
         sys.exit(2)
 
+    # Interleave by outer city. Grouped by city, a 90k-task run spends its first
+    # hours exhausting one airport before touching the next, so a cheaper fare
+    # somewhere else does not surface until days in. Round-robin means every
+    # city is sampled early and the running "new low" alerts stay useful even
+    # if the full sweep takes days.
+    by_city = {}
+    for t in all_tasks:
+        by_city.setdefault(t["out1"], []).append(t)
+    interleaved = []
+    while any(by_city.values()):
+        for city in list(by_city):
+            if by_city[city]:
+                interleaved.append(by_city[city].pop(0))
+            else:
+                del by_city[city]
+    all_tasks = interleaved
+
     print(f"\n🔢 total tasks: {len(all_tasks)} (× 2 sources each ≈ {len(all_tasks) * 2} scrapes)")
 
     # Write tasks.jsonl
