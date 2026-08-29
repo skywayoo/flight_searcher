@@ -209,6 +209,14 @@ def main():
         except Exception as e:
             print(f"❌ {t.get('name', '?')}: {e}", file=sys.stderr)
             sys.exit(2)
+        # Stamp this target's budget onto its tasks so the scraper can stop
+        # after the first source once a ticket is already over budget.
+        budget = t.get("budget") or {}
+        for task in tasks:
+            if budget.get("economy"):
+                task["econ_cap"] = budget["economy"]
+            if budget.get("business"):
+                task["biz_cap"] = budget["business"]
         by_target[t["name"]] = {"target": t, "tasks": tasks}
         all_tasks.extend(tasks)
         print(f"  • {t['name']}: {len(tasks)} task(s) (cartesian-expanded)")

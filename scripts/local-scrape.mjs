@@ -9,8 +9,9 @@
 // Each output line preserves that metadata and adds scrape result fields.
 
 import { chromium } from 'playwright-core';
-import { readFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, appendFileSync, existsSync, mkdirSync, realpathSync } from 'fs';
 import { dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { argv, exit } from 'process';
 
 function fmtEzDate(iso) {
@@ -62,14 +63,27 @@ function buildTripMobileUrl(segs, cabin) {
   return `https://tw.trip.com/m/flights/flightfirst/?${p}`;
 }
 
+// Never affect the price text we parse, but dominate the bytes and the
+// decode/layout work. Dropping them cut trip.com's wall time by ~33% in
+// scripts/bench-scrape.mjs. Deliberately NOT applied to the eztravel context:
+// that one sits behind Incapsula and is flaky enough without perturbing what
+// its anti-bot JS sees load.
+const SKIPPABLE_RESOURCES = new Set(['image', 'media', 'font']);
+
 async function createTripContext(browser) {
   // Trip.com mobile uses wholetext attribute for prices (anti-scrape).
   // Mobile UA + small viewport triggers the mobile flightfirst page which shows bundle totals.
-  return browser.newContext({
+  const ctx = await browser.newContext({
     viewport: { width: 414, height: 896 },
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
     locale: 'zh-TW',
   });
+  await ctx.route('**/*', (route) => (
+    SKIPPABLE_RESOURCES.has(route.request().resourceType())
+      ? route.abort()
+      : route.continue()
+  ));
+  return ctx;
 }
 
 async function scrapeTrip(ctx, segments, cabin) {
@@ -78,7 +92,9 @@ async function scrapeTrip(ctx, segments, cabin) {
   const t0 = Date.now();
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    // Wait up to 25s for prices to render
+    // Wait up to 25s for prices to render. Benchmarks put first paint of a
+    // price at 1.5–2.7s, so poll at 400ms rather than 1s — a full second of
+    // idle waiting per task is the single largest avoidable cost here.
     let waited = 0;
     let foundPrice = false;
     while (waited < 25000) {
@@ -88,8 +104,8 @@ async function scrapeTrip(ctx, segments, cabin) {
         );
       });
       if (foundPrice) break;
-      await page.waitForTimeout(1000);
-      waited += 1000;
+      await page.waitForTimeout(400);
+      waited += 400;
     }
     if (!foundPrice) {
       return { ok: true, source: 'trip.com', prices: [], url, durationMs: Date.now() - t0 };
@@ -236,6 +252,22 @@ async function main() {
   const concurrency = parseInt(args.concurrency || '4', 10);
   if (!input || !output) {
     console.error('Usage: --input <jsonl> --output <jsonl> [--concurrency 4] [--sources both]');
+    console.error('       [--econ-cap 50000] [--biz-cap 80000] [--cap-margin 0.10]');
+    exit(1);
+  }
+
+  // Budget gate. Both sources already report the total fare for the whole
+  // multi-city ticket on their first result page, so once the leading source
+  // comes back over budget there is nothing to gain from loading the second
+  // one. Benchmarked on 18 four-segment tasks: trip.com priced 18/18 at
+  // ~1.9s/task, eztravel 5/18 at ~6.5s/task, and eztravel undercut trip.com in
+  // 1 of 6 pairs by 3.5% — hence trip.com leads and the margin below keeps that
+  // outlier reachable.
+  const econCap = args['econ-cap'] ? parseInt(args['econ-cap'], 10) : null;
+  const bizCap = args['biz-cap'] ? parseInt(args['biz-cap'], 10) : null;
+  const capMargin = parseFloat(args['cap-margin'] ?? '0.10');
+  if (Number.isNaN(capMargin) || capMargin < 0) {
+    console.error(`--cap-margin: bad value ${JSON.stringify(args['cap-margin'])} (expected a number >= 0)`);
     exit(1);
   }
 
@@ -272,6 +304,7 @@ async function main() {
   });
 
   let completed = 0;
+  let skippedOverCap = 0;
   const started = Date.now();
 
   // Worker pool. Each worker holds the contexts required by the selected
@@ -311,7 +344,35 @@ async function main() {
         sinceRotate = 0;
         if (global.gc) global.gc();
       }
-      if (useEztravel) {
+      // 1. trip.com leads — it is the faster and far more complete source.
+      let tripMin = null;
+      if (useTrip) {
+        const t1 = Date.now();
+        try {
+          const result = await scrapeTrip(tripCtx, task.segments, task.cabin);
+          tripMin = result.ok && result.prices?.length ? result.prices[0].price : null;
+          appendFileSync(output, JSON.stringify({ ...task, ...result }) + '\n');
+        } catch (e) {
+          appendFileSync(output, JSON.stringify({
+            ...task,
+            source: 'trip.com',
+            ok: false,
+            error: String(e).slice(0, 200),
+            durationMs: Date.now() - t1,
+          }) + '\n');
+        }
+      }
+
+      // 2. eztravel only when the ticket might still land inside budget.
+      // Per-task caps (stamped by the scanners from each target's own budget)
+      // win over the run-wide --econ-cap/--biz-cap defaults. A cap of 0 or a
+      // missing cap means "no budget set" — never gate those.
+      const cap = task.cabin === 'business'
+        ? (task.biz_cap || bizCap)
+        : (task.econ_cap || econCap);
+      const overCap = cap && tripMin !== null && tripMin > cap * (1 + capMargin);
+      if (overCap) skippedOverCap++;
+      if (useEztravel && !overCap) {
         const t0 = Date.now();
         try {
           const result = await scrapeOne(ezCtx, task.segments, task.cabin);
@@ -326,21 +387,6 @@ async function main() {
           }) + '\n');
         }
       }
-      if (useTrip) {
-        const t1 = Date.now();
-        try {
-          const result = await scrapeTrip(tripCtx, task.segments, task.cabin);
-          appendFileSync(output, JSON.stringify({ ...task, ...result }) + '\n');
-        } catch (e) {
-          appendFileSync(output, JSON.stringify({
-            ...task,
-            source: 'trip.com',
-            ok: false,
-            error: String(e).slice(0, 200),
-            durationMs: Date.now() - t1,
-          }) + '\n');
-        }
-      }
       completed++;
       sinceRotate++;
       if (completed % 10 === 0 || completed === tasks.length) {
@@ -350,7 +396,7 @@ async function main() {
         const mem = process.memoryUsage();
         const rssMb = Math.round(mem.rss / 1024 / 1024);
         const heapMb = Math.round(mem.heapUsed / 1024 / 1024);
-        console.error(`[w${w}] ${completed}/${tasks.length} elapsed=${elapsed}s eta=${eta}s rate=${rate.toFixed(2)}/s rss=${rssMb}MB heap=${heapMb}MB`);
+        console.error(`[w${w}] ${completed}/${tasks.length} elapsed=${elapsed}s eta=${eta}s rate=${rate.toFixed(2)}/s skipped=${skippedOverCap} rss=${rssMb}MB heap=${heapMb}MB`);
       }
     }
     await ezCtx?.close().catch(() => {});
@@ -362,7 +408,14 @@ async function main() {
   console.error('done');
 }
 
-main().catch((e) => {
-  console.error('fatal:', e);
-  exit(1);
-});
+// Only run the batch when invoked directly, so benchmarks/tests can import
+// the scrape helpers without kicking off a full run.
+const invokedDirectly = argv[1] && realpathSync(argv[1]) === fileURLToPath(import.meta.url);
+if (invokedDirectly) {
+  main().catch((e) => {
+    console.error('fatal:', e);
+    exit(1);
+  });
+}
+
+export { scrapeOne, scrapeTrip, createWarmContext, createTripContext, buildMultiCityUrl, buildTripMobileUrl };

@@ -490,6 +490,42 @@ python3 scripts/watch-hits.py
 
 ---
 
+## ⚡ 爬蟲的預算早停（budget gate）
+
+兩個來源在**第一頁**顯示的價格就已經是整張多段票的總價（eztravel 讀航空公司篩選側欄的
+`航空公司 TWD xx,xxx`；trip.com 手機版 flightfirst 讀 `多個城市的人均價，已含稅項及費用`），
+所以只要領先來源回報的總價已經超出預算，第二個來源就沒有再開一次頁面的價值。
+
+`local-scrape.mjs` 因此改成：
+
+1. **先跑 trip.com**（實測比 eztravel 快約 3 倍、命中率高很多）
+2. trip.com 最低價 > `cap × (1 + cap-margin)` → **直接跳過 eztravel**
+3. 否則才補跑 eztravel 做交叉比對
+
+預算來源優先序：task 上的 `econ_cap` / `biz_cap`（由 `scan-json-only.py` /
+`scan-targets-direct.py` 依各 target 自己的預算蓋章）> CLI 的 `--econ-cap` / `--biz-cap`。
+cap 是 0 或沒設就完全不啟用早停。
+
+| 旗標 | 預設 | 說明 |
+|------|------|------|
+| `--econ-cap N` | 無 | 經濟艙預算，未設則不早停 |
+| `--biz-cap N` | 無 | 商務艙預算，未設則不早停 |
+| `--cap-margin F` | `0.10` | 安全邊際。實測 eztravel 最多只比 trip.com 便宜 3.4%，10% 留了約 3 倍餘裕 |
+| `--sources` | `both` | `eztravel` / `trip.com` / `both`，可用逗號組合 |
+
+實測（12 個四段 task、concurrency 1、`--econ-cap 50000`）：
+
+| | 早停前 | 早停後 |
+|---|---|---|
+| wall time | 93.5s | **30.9s**（−67%） |
+| CPU（user+sys） | 72.7s | **42.3s**（−42%） |
+| 開的頁面數 | 24 | **13** |
+| 漏掉的 in-budget 命中 | — | **0** |
+
+要重跑這組量測：`node scripts/bench-scrape.mjs`（用 `BENCH_TASKS` 環境變數餵 task JSON）。
+
+---
+
 ## 🐛 常見問題
 
 ### Q: scan 全部 0 命中、HTML body 永遠 length=0

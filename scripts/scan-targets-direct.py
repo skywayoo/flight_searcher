@@ -202,7 +202,16 @@ def main():
 
     all_tasks = []
     for t in targets:
-        all_tasks.extend(expand_target(t))
+        tasks = expand_target(t)
+        # Stamp this target's budget onto its tasks so the scraper can stop
+        # after the first source once a ticket is already over budget. A 0 cap
+        # means "no budget set" downstream, so leave it off entirely.
+        for task in tasks:
+            if t.get("budgetCapEcon"):
+                task["econ_cap"] = t["budgetCapEcon"]
+            if t.get("budgetCapBusiness"):
+                task["biz_cap"] = t["budgetCapBusiness"]
+        all_tasks.extend(tasks)
     print(f"Total tasks (after cartesian × cabins): {len(all_tasks)}")
 
     # Priority sort: TPE seg4 targets first (more likely to have flights),

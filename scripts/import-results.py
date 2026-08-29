@@ -191,6 +191,50 @@ def drop_skipped_results_tables(conn):
         conn.execute(f"DROP TABLE IF EXISTS {tbl}")
 
 
+def collapse_to_best_per_combination(lines):
+    """Keep only the cheapest line per scraped combination.
+
+    The scraper writes one line per source, and every source shares the same
+    combination key. Downstream each line DELETEs that key's rows before
+    deciding whether to insert, so whichever source happened to be written last
+    used to win — and an over-budget or price-less line would wipe a cheaper
+    one that had already been imported. Collapsing here means the loop below
+    sees exactly one line per combination: the best price found for it.
+
+    Lines that can't be parsed or keyed are passed through untouched so the
+    caller still reports them.
+    """
+    best = {}          # key -> (lineno, line, price)
+    passthrough = []   # unparseable/unkeyable lines, reported downstream
+
+    for lineno, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            r = json.loads(stripped)
+            segs = r["segments"]
+            key = (r["out1"], r["out4"], segs[1]["to"], segs[2]["from"],
+                   r.get("seg4_airport") or segs[3]["from"],
+                   r.get("variation"),
+                   r.get("seg4_date") or segs[3]["date"],
+                   r["cabin"])
+        except (ValueError, KeyError, IndexError, TypeError):
+            passthrough.append((lineno, line))
+            continue
+
+        prices = r.get("prices") or [] if r.get("ok") else []
+        price = prices[0]["price"] if prices else None
+        # A priced line always beats a price-less one; between two priced lines
+        # the cheaper wins.
+        prev = best.get(key)
+        if prev is None or (price is not None and (prev[2] is None or price < prev[2])):
+            best[key] = (lineno, line, price)
+
+    kept = [(lineno, line) for lineno, line, _ in best.values()]
+    return sorted(kept + passthrough)
+
+
 # ============================================================
 # Main import
 # ============================================================
@@ -227,7 +271,7 @@ def main():
         notion_failed = 0
 
         with open(path) as f:
-            for lineno, line in enumerate(f, 1):
+            for lineno, line in collapse_to_best_per_combination(f):
                 line = line.strip()
                 if not line:
                     continue
